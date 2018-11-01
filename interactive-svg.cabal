@@ -1,0 +1,46 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.31.0.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 27cee86cde49667cc6a366a9295bcbe37ead79ed1658f9dfdf3150303ea64583
+
+name:           interactive-svg
+version:        0.1.0.0
+description:    Please see the README on GitHub at <https://github.com/githubuser/interactive-svg#readme>
+homepage:       https://github.com/githubuser/interactive-svg#readme
+bug-reports:    https://github.com/githubuser/interactive-svg/issues
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2018 Author name here
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+    ChangeLog.md
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/interactive-svg
+
+library
+  exposed-modules:
+      Doc
+      Expr
+      Path
+      Solve
+      Spec
+  other-modules:
+      Paths_interactive_svg
+  hs-source-dirs:
+      src
+  build-depends:
+      ad
+    , base >=4.7 && <5
+    , containers
+    , text
+    , text-builder
+  default-language: Haskell2010
+

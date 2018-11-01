@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="500"
+  height="500"
+  viewBox="0 0 200 200"
+>
+  <path
+    fill="teal"
+    fill-opacity="0.4"
+    stroke="black"
+    stroke-width="1px"
+    d="M 100 100
+       m -40 -30
+       l 80 0
+       l 0 60
+       l -80 0
+       z
+       "
+  />
+  <path
+    fill="blue"
+    fill-opacity="0.4"
+    stroke="black"
+    stroke-width="1px"
+    d="M 100 100
+       m -19.64102 -45.98076
+       l 69.23203 40
+       l -30 51.96152
+       l -69.28203 -40
+       z
+       "
+  />
+  <path
+    fill="green"
+    fill-opacity="0.4"
+    stroke="black"
+    stroke-width="1px"
+    d="M 100 100
+       m -49.64102 -5.98076
+       l 69.23203 -40
+       l 30 51.96152
+       l -69.28203 40
+       z
+       "
+  />
+    
+</svg>

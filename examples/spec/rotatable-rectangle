@@ -1,0 +1,77 @@
+-- original rectangle
+
+shape Rectangle:
+  w, h, cx, cy : R
+  let:
+    left   = -w / 2
+    right  = w / 2
+    top    = -h / 2
+    bottom = h / 2
+  render:
+    M cx cy
+    m left top
+    l w 0
+    l 0 h
+    l -w 0
+    z
+  handles:
+    lt = (cx + left,  cy + top)
+    rt = (cx + right, cy + top)
+    lb = (cx + left,  cy + bottom)
+    rb = (cx + right, cy + bottom)
+  move lt:
+    fix rb
+  move rt:
+    fix lb
+  move lb:
+    fix rt
+  move rb:
+    fix lt
+
+-- rotatable rectangle
+
+shape Rectangle:
+  w, h, cx, cy, theta : R
+  let:
+    left   = -w / 2
+    right  = w / 2
+    top    = -h / 2
+    bottom = h / 2
+  render:
+    M cx cy
+    m (left * cos(theta) - top * sin(theta))
+      (left * sin(theta) + top * cos(theta))
+    l (w * cos(theta))
+      (w * sin(theta))
+    l (-h * sin(theta))
+      (h * cos(theta))
+    l (-w * cos(theta))
+      (-w * sin(theta))
+    z
+  handles:
+    lt = ( cx + left * cos(theta) - top * sin(theta)
+         , cy + left * sin(theta) + top * cos(theta)
+         )
+    rt = ( cx + right * cos(theta) - top * sin(theta)
+         , cy + right * sin(theta) + top * cos(theta)
+         )
+    lb = ( cx + left * cos(theta) - bottom * sin(theta)
+         , cy + left * sin(theta) + bottom * cos(theta)
+         )
+    rb = ( cx + right * cos(theta) - bottom * sin(theta)
+         , cy + right * sin(theta) + bottom * cos(theta)
+         )
+    r = ( cx + 10px * cos(theta)
+        , cy + 10px * sin(theta)
+        )
+  move lt:
+    fix rb, theta
+  move rt:
+    fix lb, theta
+  move lb:
+    fix rt, theta
+  move rb:
+    fix lt, theta
+  move r:
+    fix w, h, cx, cy
+

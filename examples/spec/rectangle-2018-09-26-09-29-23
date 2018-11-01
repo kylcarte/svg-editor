@@ -1,0 +1,19 @@
+-- original rectangle render
+
+w, h, cx, cy ->
+M cx cy
+m (-w / 2) (-h / 2)
+l w 0
+l 0 h
+l -w 0
+z
+
+-- rotation of a point (x,y) by angle phi about point (ox,oy)
+--
+-- x' - ox = 
+-- y' - oy = 
+
+-- rotated by phi about point rx,ry
+
+
+

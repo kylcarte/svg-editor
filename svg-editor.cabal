@@ -6,11 +6,11 @@ cabal-version: 1.12
 --
 -- hash: 27cee86cde49667cc6a366a9295bcbe37ead79ed1658f9dfdf3150303ea64583
 
-name:           interactive-svg
+name:           svg-editor
 version:        0.1.0.0
-description:    Please see the README on GitHub at <https://github.com/githubuser/interactive-svg#readme>
-homepage:       https://github.com/githubuser/interactive-svg#readme
-bug-reports:    https://github.com/githubuser/interactive-svg/issues
+description:    Please see the README on GitHub at <https://github.com/githubuser/svg-editor#readme>
+homepage:       https://github.com/githubuser/svg-editor#readme
+bug-reports:    https://github.com/githubuser/svg-editor/issues
 author:         Author name here
 maintainer:     example@example.com
 copyright:      2018 Author name here
@@ -23,7 +23,7 @@ extra-source-files:
 
 source-repository head
   type: git
-  location: https://github.com/githubuser/interactive-svg
+  location: https://github.com/kylcarte/svg-editor
 
 library
   exposed-modules:
@@ -33,7 +33,7 @@ library
       Solve
       Spec
   other-modules:
-      Paths_interactive_svg
+      Paths_svg_editor
   hs-source-dirs:
       src
   build-depends:

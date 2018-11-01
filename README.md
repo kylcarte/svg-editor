@@ -1,1 +1,1 @@
-# interactive-svg
+# svg-editor

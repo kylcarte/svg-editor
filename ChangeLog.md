@@ -1,3 +1,3 @@
-# Changelog for interactive-svg
+# Changelog for svg-editor
 
 ## Unreleased changes

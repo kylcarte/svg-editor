@@ -1,3 +1,4 @@
+{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
@@ -12,20 +13,35 @@ import Data.String (IsString(..))
 import Path
 import Expr
 
+type Spec = Env ShapeType
+
 data Ty
   = R
   deriving (Eq,Ord,Show)
 
-type Desc = Map String Ty
-
-data Shape = Shape
-  { shapeName     :: String
-  , shapeDesc     :: Map String Ty
-  , shapeDefs     :: Map String Expr
+data ShapeType = ShapeType
+  { shapeParams   :: Env Ty
+  , shapeDefs     :: Env Expr
   , shapeRender   :: Path Expr
-  , shapeHandles  :: Map String (Expr,Expr)
-  , shapeControls :: Map String FixedVals
+  , shapeHandles  :: Env (Expr,Expr)
+  , shapeControls :: Env FixedVals
   } deriving (Eq,Ord,Show)
+
+shapeBindings :: ShapeType -> Env Expr
+shapeBindings st =
+  (Map.mapWithKey (const . Var) $ shapeParams st)
+  <> shapeDefs st
+
+handleFixList :: ShapeType -> String -> [Expr]
+handleFixList st h =
+  foldMap
+  ( foldMap $ \case
+    Var h' | Just (hx',hy') <- Map.lookup h' (shapeHandles st)
+      -> [hx',hy']
+    e -> [e]
+  ) fvs
+  where
+  fvs = Map.lookup h $ shapeControls st
 
 type FixedVals = Set Expr
 
@@ -33,10 +49,9 @@ data Transform
   = Move
   deriving (Eq,Ord,Show)
 
-rectangle :: Shape
-rectangle = Shape
-  { shapeName     = "Rectangle"
-  , shapeDesc     = [ ( "w"  , R )
+rectangle :: ShapeType
+rectangle = ShapeType
+  { shapeParams   = [ ( "w"  , R )
                     , ( "h"  , R )
                     , ( "cx" , R )
                     , ( "cy" , R )
@@ -65,10 +80,9 @@ rectangle = Shape
                     ]
   }
 
-rotatableRectangle :: Shape
-rotatableRectangle = Shape
-  { shapeName     = "Rectangle"
-  , shapeDesc     = [ ( "w"     , R )
+rotatableRectangle :: ShapeType
+rotatableRectangle = ShapeType
+  { shapeParams   = [ ( "w"     , R )
                     , ( "h"     , R )
                     , ( "cx"    , R )
                     , ( "cy"    , R )

@@ -1,10 +1,21 @@
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 
 module Expr where
 
+import Control.Effect
+import Control.Effect.Error
+import Control.Effect.Reader
 import Data.String (IsString(..))
 import Data.Map (Map)
 import qualified Data.Map as Map
+
+type Env = Map String
 
 data Expr
   = Val    Double
@@ -89,83 +100,71 @@ data EvalErr
   = UnboundVar String
   deriving (Eq,Ord,Show)
 
-type Env = Map String
+evalVar ::
+  ( Member (Error EvalErr) sig
+  , Carrier sig m
+  , Monad m
+  ) => Env a -> String -> m a
+evalVar env x = throwUnlessJust (UnboundVar x) $ Map.lookup x env
 
-newtype Eval a b = Eval
-  { unEval :: Env a -> Either EvalErr b
-  }
-
-instance Functor (Eval a) where
-  fmap f = Eval . fmap (fmap f) . unEval
-
-instance Applicative (Eval a) where
-  pure = Eval . pure . pure
-  Eval f <*> Eval x = Eval $ \env ->
-    f env <*> x env
-
-instance Monad (Eval a) where
-  Eval m >>= f = Eval $ \env ->
-    let r = m env
-    in r >>= ($ env) . unEval . f
-
-curEnv :: Eval a (Env a)
-curEnv = Eval return
-
-evalErr :: EvalErr -> Eval a b
-evalErr = Eval . const . Left
-
-evalVar :: String -> Eval a a
-evalVar x = do
-  env <- curEnv
-  maybe (evalErr $ UnboundVar x) return
-    $ Map.lookup x env
-
-eval :: Floating a => Expr -> Eval a a
-eval = \case
+eval ::
+  ( Floating a
+  , Member (Error EvalErr) sig
+  , Carrier sig m
+  , Monad m
+  ) => Env a -> Expr -> m a
+eval env = \case
   Val v ->
-    return $ fromRational $ toRational v
+    return $ realToFrac v
   Var x ->
-    evalVar x
+    evalVar env x
   Add e1 e2 ->
-    (+) <$> eval e1 <*> eval e2
+    (+) <$> eval env e1 <*> eval env e2
   Mul e1 e2 ->
-    (*) <$> eval e1 <*> eval e2
+    (*) <$> eval env e1 <*> eval env e2
   Neg e ->
-    negate <$> eval e
+    negate <$> eval env e
   Recip e ->
-    recip <$> eval e
+    recip <$> eval env e
   Abs e ->
-    abs <$> eval e
+    abs <$> eval env e
   Signum e ->
-    signum <$> eval e
+    signum <$> eval env e
   Exp e ->
-    exp <$> eval e
+    exp <$> eval env e
   Log e ->
-    log <$> eval e
+    log <$> eval env e
   Sqrt e ->
-    sqrt <$> eval e
+    sqrt <$> eval env e
   Pow e1 e2 ->
-    (**) <$> eval e1 <*> eval e2
+    (**) <$> eval env e1 <*> eval env e2
   Sin e ->
-    sin <$> eval e
+    sin <$> eval env e
   Cos e ->
-    cos <$> eval e
+    cos <$> eval env e
   Asin e ->
-    asin <$> eval e
+    asin <$> eval env e
   Acos e ->
-    acos <$> eval e
+    acos <$> eval env e
   Atan e ->
-    atan <$> eval e
+    atan <$> eval env e
   Sinh e ->
-    sinh <$> eval e
+    sinh <$> eval env e
   Cosh e ->
-    cosh <$> eval e
+    cosh <$> eval env e
   Asinh e ->
-    asinh <$> eval e
+    asinh <$> eval env e
   Acosh e ->
-    acosh <$> eval e
+    acosh <$> eval env e
   Atanh e ->
-    atanh <$> eval e
+    atanh <$> eval env e
+
+throwUnlessJust ::
+  ( Member (Error e) sig
+  , Carrier sig m
+  , Monad m
+  ) => e -> Maybe a -> m a
+throwUnlessJust e = maybe (throwError e) return
 
 -- }}}
 

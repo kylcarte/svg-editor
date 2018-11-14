@@ -1,15 +1,15 @@
 
 module Doc where
 
+import Expr
 import Spec
 import Data.Map (Map)
 import qualified Data.Map as Map
 
-data Val
-  = V_R Double
-  deriving (Eq,Ord,Show)
+type Doc = Map Int ShapeVal
 
-type ShapeData = Map String Val
-
-type Doc = Map String ShapeData
+data ShapeVal = ShapeVal
+  { shapeType :: String
+  , shapeVal  :: Env Double
+  } deriving (Eq,Ord,Show)
 

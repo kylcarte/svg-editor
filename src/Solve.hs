@@ -17,16 +17,18 @@ import Doc
 import Expr
 import Spec
 import Numeric.AD.Newton hiding (eval)
+import Numeric.AD.Mode.Reverse (Reverse,auto)
+import Numeric.AD.Internal.Reverse (Tape)
+import Data.Reflection (Reifies)
 
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 
--- {{{
-
-newtype Fn a = Fn
-  { with :: Env a -> a
+-- our own CC data type, to avoid orphan instances
+data Fn a = Fn
+  { apFn :: forall s. Reifies s Tape => Env (Reverse s a) -> Reverse s a
   }
 
 instance Num a => Num (Fn a) where
@@ -35,11 +37,11 @@ instance Num a => Num (Fn a) where
   (-) = fn2 (-)
   abs = fn1 abs
   signum = fn1 signum
-  fromInteger = fn0 . fromInteger
+  fromInteger i = fn0 $ fromInteger i
 
 instance Fractional a => Fractional (Fn a) where
   (/)          = fn2 (/)
-  fromRational = fn0 . fromRational
+  fromRational r = fn0 $ fromRational r
 
 instance Floating a => Floating (Fn a) where
   pi    = fn0 pi
@@ -56,111 +58,144 @@ instance Floating a => Floating (Fn a) where
   acosh = fn1 acosh
   atanh = fn1 atanh
 
-fn0 :: a -> Fn a
-fn0 = Fn . const
+fn0 :: (forall s. Reifies s Tape => Reverse s a)
+    -> Fn a
+fn0 f = Fn $ \_ -> f
 
-fn1 :: (a -> a) -> Fn a -> Fn a
-fn1 f x = Fn $ \env -> f (x `with` env)
+fn1 :: (forall s. Reifies s Tape => Reverse s a -> Reverse s a)
+    -> Fn a -> Fn a
+fn1 f (Fn x) = Fn $ \env -> f (x env)
 
-fn2 :: (a -> a -> a) -> Fn a -> Fn a -> Fn a
-fn2 f x y = Fn $ \env -> f (x `with` env) (y `with` env)
+fn2 :: (forall s. Reifies s Tape => Reverse s a -> Reverse s a -> Reverse s a)
+    -> Fn a -> Fn a -> Fn a
+fn2 f (Fn x) (Fn y) = Fn $ \env -> f (x env) (y env)
 
 var :: String -> Fn a
-var x = Fn (Map.! x)
+var x = Fn $ (Map.! x)
 
 dbl :: Fractional a => Double -> Fn a
-dbl = fn0 . realToFrac
+dbl n = fn0 $ auto $ realToFrac n
 
 check :: Floating a => Env b -> Expr -> Either EvalErr (Fn a)
-check vars = \case
+check params = \case
   Val v ->
-    return $ fn0 $ realToFrac v
-  Var x -> if x `Map.member` vars
+    return $ dbl v
+  Var x -> if x `Map.member` params
     then return $ var x
     else Left $ UnboundVar x
   Add e1 e2 ->
-    (+) <$> check vars e1 <*> check vars e2
+    (+) <$> check params e1 <*> check params e2
   Mul e1 e2 ->
-    (*) <$> check vars e1 <*> check vars e2
+    (*) <$> check params e1 <*> check params e2
   Neg e ->
-    negate <$> check vars e
+    negate <$> check params e
   Recip e ->
-    recip <$> check vars e
+    recip <$> check params e
   Abs e ->
-    abs <$> check vars e
+    abs <$> check params e
   Signum e ->
-    signum <$> check vars e
+    signum <$> check params e
   Exp e ->
-    exp <$> check vars e
+    exp <$> check params e
   Log e ->
-    log <$> check vars e
+    log <$> check params e
   Sqrt e ->
-    sqrt <$> check vars e
+    sqrt <$> check params e
   Pow e1 e2 ->
-    (**) <$> check vars e1 <*> check vars e2
+    (**) <$> check params e1 <*> check params e2
   Sin e ->
-    sin <$> check vars e
+    sin <$> check params e
   Cos e ->
-    cos <$> check vars e
+    cos <$> check params e
   Asin e ->
-    asin <$> check vars e
+    asin <$> check params e
   Acos e ->
-    acos <$> check vars e
+    acos <$> check params e
   Atan e ->
-    atan <$> check vars e
+    atan <$> check params e
   Sinh e ->
-    sinh <$> check vars e
+    sinh <$> check params e
   Cosh e ->
-    cosh <$> check vars e
+    cosh <$> check params e
   Asinh e ->
-    asinh <$> check vars e
+    asinh <$> check params e
   Acosh e ->
-    acosh <$> check vars e
+    acosh <$> check params e
   Atanh e ->
-    atanh <$> check vars e
+    atanh <$> check params e
 
--- }}}
+mkCostFunction :: Floating a => Env b -> (Expr,Expr) -> Either EvalErr ((Double,Double) -> Fn a)
+mkCostFunction params (ex,ey) = do
+  fx <- check params ex
+  fy <- check params ey
+  return $ \(x,y) -> euclDist (fx,fy) (dbl x,dbl y)
 
-mkCostFunction :: Floating a => Env b -> (Expr,Expr) -> Either EvalErr ((a,a) -> Fn a)
-mkCostFunction vars (ex,ey) = do
-  fx <- check vars ex
-  fy <- check vars ey
-  return $ \(x,y) -> euclDist (fx,fy) (fn0 x,fn0 y)
-
-mkEqConstraint :: Floating a => Env b -> Env a -> Expr -> Either EvalErr (Fn a,a)
-mkEqConstraint vars env e = (,)
-  <$> check vars e
-  <*> eval env e
+mkEqConstraint :: Floating a => Env b -> Env Expr -> Env a -> Expr -> Either EvalErr (Fn a,a)
+mkEqConstraint params defs env e = (,)
+  <$> check params e'
+  <*> eval env e'
+  where
+  e' = subst defs e
 
 checkDefs :: Floating a => ShapeType -> Either EvalErr (Env (Fn a))
 checkDefs st = traverse (check $ shapeParams st) $ shapeDefs st
 
-moveControl :: Floating a => ShapeType -> ShapeVal -> String -> Either EvalErr ((a,a) -> ConOptProblem a)
-moveControl st sv h = do
+moveControl :: Floating a => ShapeType -> String -> ShapeVal -> Either EvalErr ((Double,Double) -> ConOptProblem a)
+moveControl st h sv = do
   (hex, hey) <- evalVar (shapeHandles st) h
   let defs = shapeDefs st
   let fes = handleFixList st h
-  cfn  <- mkCostFunction
-          (shapeParams st)
+  let params = shapeParams st
+  cfn <- mkCostFunction
+          params
           (subst defs hex,subst defs hey)
-  eqcs <- mapM ( mkEqConstraint
-                 (shapeParams st)
-               $ realToFrac <$> shapeVal sv
-               ) fes
-  return $ \(x,y) -> ConOptProblem
-    { costFunction    = cfn (x,y)
+  let env = realToFrac <$> shapeVal sv
+  eqcs <- mapM (mkEqConstraint params defs env) fes
+  return $ \hMoved -> ConOptProblem
+    { costFunction    = cfn hMoved
     , eqConstraints   = eqcs
-    , ineqConstraints = []
     }
 
 data ConOptProblem a = ConOptProblem
   { costFunction    :: Fn a
   , eqConstraints   :: [(Fn a, a)]
-  , ineqConstraints :: [(Fn a, a)]
   }
 
 euclDist :: Floating a => (a,a) -> (a,a) -> a
 euclDist (x1,y1) (x2,y2) =
   sqrt $ (x2 - x1) ** 2
        + (y2 - y1) ** 2
+
+type Lagrangian = Map (Either Int String)
+
+toLagrangian :: Num a => ConOptProblem a -> CC Lagrangian a
+toLagrangian p = CC $ \env ->
+  case costFunction p of
+    Fn f ->
+      let base_env = rightKeys env
+      in foldr
+      ( \(i,(Fn g,c)) ->
+        let l_mul = env Map.! Left i
+        in subtract
+        $ l_mul * (g base_env + auto c)
+      )
+      (f base_env)
+      $ zip [0..]
+      $ eqConstraints p
+
+rightKeys :: Ord k => Map (Either k' k) a -> Map k a
+rightKeys = Map.foldMapWithKey $ either (\_ _ -> mempty) Map.singleton
+
+solveProblem :: ShapeVal -> ConOptProblem Double -> [Env Double]
+solveProblem sv p = case toLagrangian p of
+  CC f -> fmap rightKeys $ gradientDescent f $ multipliers <> Map.mapKeys Right (shapeVal sv)
+  where
+  m = length $ eqConstraints p
+  multipliers = Map.fromList
+    [ (Left i, 1)
+    | i <- [0 .. m - 1]
+    ]
+
+allTogetherNow :: ShapeType -> String -> ShapeVal -> Either EvalErr ((Double,Double) -> [Env Double])
+allTogetherNow st h sv = fmap (solveProblem sv) <$> moveControl st h sv
 

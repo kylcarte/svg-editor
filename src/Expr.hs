@@ -8,9 +8,6 @@
 
 module Expr where
 
-import Control.Effect
-import Control.Effect.Error
-import Control.Effect.Reader
 import Data.String (IsString(..))
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -100,71 +97,66 @@ data EvalErr
   = UnboundVar String
   deriving (Eq,Ord,Show)
 
-evalVar ::
-  ( Member (Error EvalErr) sig
-  , Carrier sig m
-  , Monad m
-  ) => Env a -> String -> m a
-evalVar env x = throwUnlessJust (UnboundVar x) $ Map.lookup x env
+eval :: Floating a => Env a -> Expr -> Either EvalErr a
+eval env = evalWith (evalVar env) env
 
-eval ::
-  ( Floating a
-  , Member (Error EvalErr) sig
-  , Carrier sig m
-  , Monad m
-  ) => Env a -> Expr -> m a
-eval env = \case
+subst :: Env Expr -> Expr -> Expr
+subst env e = case evalWith (return . Var) env e of
+  Right e' -> e'
+  Left err -> error $ "Unexpected error in subst: " ++ show err
+
+evalVar :: Env a -> String -> Either EvalErr a
+evalVar env x =
+  maybe (Left $ UnboundVar x) return
+  $ Map.lookup x env
+
+evalWith :: Floating a => (String -> Either EvalErr a) -> Env a -> Expr -> Either EvalErr a
+evalWith unb env = \case
   Val v ->
     return $ realToFrac v
   Var x ->
-    evalVar env x
+    maybe (unb x) return
+    $ Map.lookup x env
   Add e1 e2 ->
-    (+) <$> eval env e1 <*> eval env e2
+    (+) <$> evalWith unb env e1 <*> evalWith unb env e2
   Mul e1 e2 ->
-    (*) <$> eval env e1 <*> eval env e2
+    (*) <$> evalWith unb env e1 <*> evalWith unb env e2
   Neg e ->
-    negate <$> eval env e
+    negate <$> evalWith unb env e
   Recip e ->
-    recip <$> eval env e
+    recip <$> evalWith unb env e
   Abs e ->
-    abs <$> eval env e
+    abs <$> evalWith unb env e
   Signum e ->
-    signum <$> eval env e
+    signum <$> evalWith unb env e
   Exp e ->
-    exp <$> eval env e
+    exp <$> evalWith unb env e
   Log e ->
-    log <$> eval env e
+    log <$> evalWith unb env e
   Sqrt e ->
-    sqrt <$> eval env e
+    sqrt <$> evalWith unb env e
   Pow e1 e2 ->
-    (**) <$> eval env e1 <*> eval env e2
+    (**) <$> evalWith unb env e1 <*> evalWith unb env e2
   Sin e ->
-    sin <$> eval env e
+    sin <$> evalWith unb env e
   Cos e ->
-    cos <$> eval env e
+    cos <$> evalWith unb env e
   Asin e ->
-    asin <$> eval env e
+    asin <$> evalWith unb env e
   Acos e ->
-    acos <$> eval env e
+    acos <$> evalWith unb env e
   Atan e ->
-    atan <$> eval env e
+    atan <$> evalWith unb env e
   Sinh e ->
-    sinh <$> eval env e
+    sinh <$> evalWith unb env e
   Cosh e ->
-    cosh <$> eval env e
+    cosh <$> evalWith unb env e
   Asinh e ->
-    asinh <$> eval env e
+    asinh <$> evalWith unb env e
   Acosh e ->
-    acosh <$> eval env e
+    acosh <$> evalWith unb env e
   Atanh e ->
-    atanh <$> eval env e
-
-throwUnlessJust ::
-  ( Member (Error e) sig
-  , Carrier sig m
-  , Monad m
-  ) => e -> Maybe a -> m a
-throwUnlessJust e = maybe (throwError e) return
+    atanh <$> evalWith unb env e
 
 -- }}}
 

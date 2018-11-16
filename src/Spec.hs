@@ -117,7 +117,10 @@ rotatableRectangle = ShapeType
                                , "cy" + "left" * sin "theta" + "bottom" * cos "theta" 
                                )
                       )
-                    , ( "r"  , ( 10 * cos "theta" , 10 * sin "theta" ) )
+                    , ( "r"  , ( "cx" + 10 * cos "theta"
+                               , "cy" + 10 * sin "theta"
+                               )
+                      )
                     ]
   , shapeControls = [ ( "lt" , [ "rb", "theta" ] )
                     , ( "rt" , [ "lb", "theta" ] )

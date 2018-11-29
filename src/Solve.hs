@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -25,6 +27,147 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
+import qualified Data.Foldable as F
+
+mkCostFnExpr :: ShapeType -> String -> Either EvalErr (String,String,Expr)
+mkCostFnExpr st h = do
+  env <- mkShapeEnv st
+  (hxE,hyE) <- evalVar (shapeHandles st) h
+  let hx = h ++ "_x"
+      hy = h ++ "_y"
+  hxE' <- eval env hxE
+  hyE' <- eval env hyE
+  return
+    ( hx
+    , hy
+    , euclDist (hxE',hyE') (Var hx,Var hy)
+    )
+
+testCostFn :: IO ()
+testCostFn = runTests (uncurry mkCostFnExpr)
+  [ ( ( rectangle , "lt" )
+    , Right
+      ( "lt_x"
+      , "lt_y"
+      , sqrt
+        $ ("lt_x" - ("cx" - "w" / 2)) ** 2
+        + ("lt_y" - ("cy" - "h" / 2)) ** 2
+      )
+    )
+  , ( ( rotatableRectangle , "r" )
+    , Right
+      ( "r_x"
+      , "r_y"
+      , sqrt
+        $ ("r_x" - ("cx" + 10 * cos "theta")) ** 2
+        + ("r_y" - ("cy" + 10 * sin "theta")) ** 2
+      )
+    )
+  ]
+
+mkShapeEnv :: ShapeType -> Either EvalErr (Env Expr)
+mkShapeEnv st =
+  extendEnv (shapeDefs st)
+  $ Map.mapWithKey (const . Var)
+  $ shapeParams st
+
+mkEqualityConstraintExprs :: ShapeType -> String -> ShapeVal -> Either EvalErr [(Expr,Double)]
+mkEqualityConstraintExprs st h sv = do
+  env <- mkShapeEnv st
+  let fixedExprs = handleFixList st h
+  let vals = shapeVal sv
+  mapM
+    ( \e -> do
+      e' <- eval env e
+      (,) e' <$> eval vals e'
+    ) fixedExprs
+
+extendEnv :: Floating a => Env Expr -> Env a -> Either EvalErr (Env a)
+extendEnv es env =
+  Map.foldlWithKey extM (return env) es
+  where
+  extM envM x e = envM >>= \env -> do
+    v <- eval env e
+    return $ Map.insert x v env
+
+euclDist :: Floating a => (a,a) -> (a,a) -> a
+euclDist (x1,y1) (x2,y2) =
+  sqrt $ (x2 - x1) ** 2
+       + (y2 - y1) ** 2
+
+runTests :: (Eq outp,Show outp) => (inp -> outp) -> [(inp,outp)] -> IO ()
+runTests f = mapM_ (uncurry runTest) . zip [1..]
+  where
+  runTest i (input,expected) = do
+    putStr $ "test " ++ show i ++ " ... "
+    let actual = f input
+    if expected == actual
+      then putStrLn "passed"
+      else do
+        putStrLn "failed:"
+        putStrLn $ "  expected: " ++ show expected
+        putStrLn $ "  actual: " ++ show actual
+
+
+{-
+mkCostFunction :: Floating a => Env b -> (Expr,Expr) -> Either EvalErr ((Double,Double) -> Fn a)
+mkCostFunction params (ex,ey) = do
+  fx <- check params ex
+  fy <- check params ey
+  return $ \(x,y) -> euclDist (fx,fy) (dbl x,dbl y)
+-}
+
+{-
+data ConOptProblem a = ConOptProblem
+  { costFunction    :: Fn a
+  , eqConstraints   :: [(Fn a, a)]
+  }
+
+moveControl :: Floating a => ShapeType -> String -> ShapeVal -> Either EvalErr ((Double,Double) -> ConOptProblem a)
+moveControl st h sv = do
+  (hex, hey) <- evalVar (shapeHandles st) h
+  let defs = shapeDefs st
+  let fes = handleFixList st h
+  let params = shapeParams st
+  cfn <- mkCostFunction
+          params
+          (subst defs hex,subst defs hey)
+  let env = realToFrac <$> shapeVal sv
+  eqcs <- mapM (mkEqConstraint params defs env) fes
+  return $ \hMoved -> ConOptProblem
+    { costFunction    = cfn hMoved
+    , eqConstraints   = eqcs
+    }
+
+solveProblem :: ShapeVal -> ConOptProblem Double -> [Env Double]
+solveProblem sv p = case toLagrangian p of
+  CC f -> fmap rightKeys $ gradientDescent f $ multipliers <> Map.mapKeys Right (shapeVal sv)
+  where
+  m = length $ eqConstraints p
+  multipliers = Map.fromList
+    [ (Left i, 1)
+    | i <- [0 .. m - 1]
+    ]
+
+allTogetherNow :: ShapeType -> String -> ShapeVal -> Either EvalErr ((Double,Double) -> [Env Double])
+allTogetherNow st h sv = fmap (solveProblem sv) <$> moveControl st h sv
+
+
+
+mkCostFunction :: Floating a => Env b -> (Expr,Expr) -> Either EvalErr ((Double,Double) -> Fn a)
+mkCostFunction params (ex,ey) = do
+  fx <- check params ex
+  fy <- check params ey
+  return $ \(x,y) -> euclDist (fx,fy) (dbl x,dbl y)
+
+mkEqConstraint :: Floating a => Env b -> Env Expr -> Env a -> Expr -> Either EvalErr (Fn a,a)
+mkEqConstraint params defs env e = (,)
+  <$> check params e'
+  <*> eval env e'
+  where
+  e' = subst defs e
+
+
 
 -- our own CC data type, to avoid orphan instances
 data Fn a = Fn
@@ -124,47 +267,8 @@ check params = \case
   Atanh e ->
     atanh <$> check params e
 
-mkCostFunction :: Floating a => Env b -> (Expr,Expr) -> Either EvalErr ((Double,Double) -> Fn a)
-mkCostFunction params (ex,ey) = do
-  fx <- check params ex
-  fy <- check params ey
-  return $ \(x,y) -> euclDist (fx,fy) (dbl x,dbl y)
-
-mkEqConstraint :: Floating a => Env b -> Env Expr -> Env a -> Expr -> Either EvalErr (Fn a,a)
-mkEqConstraint params defs env e = (,)
-  <$> check params e'
-  <*> eval env e'
-  where
-  e' = subst defs e
-
 checkDefs :: Floating a => ShapeType -> Either EvalErr (Env (Fn a))
 checkDefs st = traverse (check $ shapeParams st) $ shapeDefs st
-
-moveControl :: Floating a => ShapeType -> String -> ShapeVal -> Either EvalErr ((Double,Double) -> ConOptProblem a)
-moveControl st h sv = do
-  (hex, hey) <- evalVar (shapeHandles st) h
-  let defs = shapeDefs st
-  let fes = handleFixList st h
-  let params = shapeParams st
-  cfn <- mkCostFunction
-          params
-          (subst defs hex,subst defs hey)
-  let env = realToFrac <$> shapeVal sv
-  eqcs <- mapM (mkEqConstraint params defs env) fes
-  return $ \hMoved -> ConOptProblem
-    { costFunction    = cfn hMoved
-    , eqConstraints   = eqcs
-    }
-
-data ConOptProblem a = ConOptProblem
-  { costFunction    :: Fn a
-  , eqConstraints   :: [(Fn a, a)]
-  }
-
-euclDist :: Floating a => (a,a) -> (a,a) -> a
-euclDist (x1,y1) (x2,y2) =
-  sqrt $ (x2 - x1) ** 2
-       + (y2 - y1) ** 2
 
 type Lagrangian = Map (Either Int String)
 
@@ -185,17 +289,5 @@ toLagrangian p = CC $ \env ->
 
 rightKeys :: Ord k => Map (Either k' k) a -> Map k a
 rightKeys = Map.foldMapWithKey $ either (\_ _ -> mempty) Map.singleton
-
-solveProblem :: ShapeVal -> ConOptProblem Double -> [Env Double]
-solveProblem sv p = case toLagrangian p of
-  CC f -> fmap rightKeys $ gradientDescent f $ multipliers <> Map.mapKeys Right (shapeVal sv)
-  where
-  m = length $ eqConstraints p
-  multipliers = Map.fromList
-    [ (Left i, 1)
-    | i <- [0 .. m - 1]
-    ]
-
-allTogetherNow :: ShapeType -> String -> ShapeVal -> Either EvalErr ((Double,Double) -> [Env Double])
-allTogetherNow st h sv = fmap (solveProblem sv) <$> moveControl st h sv
+-}
 

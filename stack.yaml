@@ -41,6 +41,7 @@ packages:
 extra-deps:
 - ad-4.3.5
 - reflection-2.1.4
+- threepenny-gui-0.8.3.0
 
 # Override default flag values for local packages and extra-deps
 # flags: {}

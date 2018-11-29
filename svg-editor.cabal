@@ -44,5 +44,6 @@ library
     , text
     , text-builder
     , transformers
+    , threepenny-gui
   default-language: Haskell2010
 

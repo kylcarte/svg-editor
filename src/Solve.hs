@@ -71,16 +71,45 @@ mkShapeEnv st =
   $ Map.mapWithKey (const . Var)
   $ shapeParams st
 
-mkEqualityConstraintExprs :: ShapeType -> String -> ShapeVal -> Either EvalErr [(Expr,Double)]
-mkEqualityConstraintExprs st h sv = do
+mkEqualityConstraintExprs :: ShapeType -> String -> Env Double -> Either EvalErr [(Expr,Double)]
+mkEqualityConstraintExprs st h vals = do
   env <- mkShapeEnv st
   let fixedExprs = handleFixList st h
-  let vals = shapeVal sv
   mapM
     ( \e -> do
       e' <- eval env e
       (,) e' <$> eval vals e'
     ) fixedExprs
+
+testEqualityConstraints :: IO ()
+testEqualityConstraints = runTests (\(st,h,vals) -> mkEqualityConstraintExprs st h vals)
+  [ ( ( rotatableRectangle , "r"
+      , Map.fromList [("w", 40),("h", 40),("cx", 50),("cy", 30),("theta",0)] )
+    , Right
+      [ ( "cx" , 50 )
+      , ( "cy" , 30 )
+      , ( "h" , 40 )
+      , ( "w" , 40 )
+      ]
+    )
+  , ( ( rectangle , "lb"
+      , Map.fromList [("w", 75),("h", 25),("cx", 30),("cy", 30)]
+      )
+    , Right
+      [ ( ("cx" + ("w" / 2)) , 67.5 )
+      , ( ("cy" - ("h" / 2)) , 17.5 )
+      ]
+    )
+  , ( ( rotatableRectangle , "lt"
+      , Map.fromList [("w", 40),("h", 40),("cx", 50),("cy", 30),("theta",0)]
+      )
+    , Right
+      [ ( ("cx" + ((- "w" / 2) * cos "theta")) - (("h" / 2) * sin "theta") , 30 )
+      , ( ("cy" + ((- "w" / 2) * sin "theta")) + (("h" / 2) * cos "theta") , 50 )
+      , ( "theta" , 0 )
+      ]
+    )
+  ]
 
 extendEnv :: Floating a => Env Expr -> Env a -> Either EvalErr (Env a)
 extendEnv es env =
@@ -107,15 +136,6 @@ runTests f = mapM_ (uncurry runTest) . zip [1..]
         putStrLn "failed:"
         putStrLn $ "  expected: " ++ show expected
         putStrLn $ "  actual: " ++ show actual
-
-
-{-
-mkCostFunction :: Floating a => Env b -> (Expr,Expr) -> Either EvalErr ((Double,Double) -> Fn a)
-mkCostFunction params (ex,ey) = do
-  fx <- check params ex
-  fy <- check params ey
-  return $ \(x,y) -> euclDist (fx,fy) (dbl x,dbl y)
--}
 
 {-
 data ConOptProblem a = ConOptProblem

@@ -29,6 +29,7 @@ library
   exposed-modules:
       Doc
       Expr
+      Interface
       Path
       Solve
       Spec

@@ -23,7 +23,7 @@ import Numeric.AD.Mode.Reverse (Reverse,auto)
 import Numeric.AD.Internal.Reverse (Tape)
 import Data.Reflection (Reifies)
 
-import Data.Map (Map)
+import Data.Map (Map,(!))
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -138,6 +138,74 @@ runTests f = mapM_ (uncurry runTest) . zip [1..]
         putStrLn $ "  actual: " ++ show actual
 
 {-
+cd_test0 :: [(Double,Env Double)]
+cd_test0 = constrainedDescent
+  ( \env -> euclDist
+    ( 10 * cos (env ! "theta") + (env ! "cx")
+    , 10 * sin (env ! "theta") + (env ! "cy")
+    )
+    ( 50
+    , 50
+    )
+  )
+  [ CC $ \env -> (env ! "cx") - 40
+  , CC $ \env -> (env ! "cy") - 40
+  , CC $ \env -> (env ! "w") - 20
+  , CC $ \env -> (env ! "h") - 20
+  ] $ Map.fromList
+  [ ("cx",40)
+  , ("cy",40)
+  , ("w",20)
+  , ("h",20)
+  , ("theta",0)
+  ]
+-}
+
+{-
+gd_test0 :: [(Double,Env Double)]
+gd_test0 = constrainedDescent
+  ( \env ->
+    euclDist
+    ( 10 * cos (env ! "theta") + (env ! "cx")
+    , 10 * sin (env ! "theta") + (env ! "cy")
+    )
+    ( 50
+    , 50
+    )
+    - (env ! "l_1") * ((env ! "cx") - 40)
+    - (env ! "l_2") * ((env ! "cy") - 40)
+    - (env ! "l_3") * ((env ! "w") - 20)
+    - (env ! "l_4") * ((env ! "h") - 20)
+  )
+  [ CC $ \env ->
+      (env ! "l_1") * ((env ! "cx") - 40)
+    + (env ! "l_2") * ((env ! "cy") - 40)
+    + (env ! "l_3") * ((env ! "w") - 20)
+    + (env ! "l_4") * ((env ! "h") - 20)
+    - euclDist
+    ( 10 * cos (env ! "theta") + (env ! "cx")
+    , 10 * sin (env ! "theta") + (env ! "cy")
+    )
+    ( 50
+    , 50
+    )
+  ]
+  $ Map.fromList
+  [ ("cx",40)
+  , ("cy",40)
+  , ("w",20)
+  , ("h",20)
+  , ("theta",0)
+  , ("l_1",1)
+  , ("l_2",1)
+  , ("l_3",1)
+  , ("l_4",1)
+  ]
+-}
+
+{-
+-- {{{
+
 data ConOptProblem a = ConOptProblem
   { costFunction    :: Fn a
   , eqConstraints   :: [(Fn a, a)]
@@ -309,5 +377,7 @@ toLagrangian p = CC $ \env ->
 
 rightKeys :: Ord k => Map (Either k' k) a -> Map k a
 rightKeys = Map.foldMapWithKey $ either (\_ _ -> mempty) Map.singleton
+
+-- }}}
 -}
 

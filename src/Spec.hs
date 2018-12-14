@@ -113,8 +113,8 @@ rotatableRectangle = ShapeType
                                , "cy" + "left" * sin "theta" + "bottom" * cos "theta" 
                                )
                       )
-                    , ( "rb" , ( "cx" + "left" * cos "theta" - "bottom" * sin "theta" 
-                               , "cy" + "left" * sin "theta" + "bottom" * cos "theta" 
+                    , ( "rb" , ( "cx" + "right" * cos "theta" - "bottom" * sin "theta" 
+                               , "cy" + "right" * sin "theta" + "bottom" * cos "theta" 
                                )
                       )
                     , ( "r"  , ( "cx" + 10 * cos "theta"

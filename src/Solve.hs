@@ -33,21 +33,14 @@ import qualified Data.Either as Either
 
 import qualified Test.QuickCheck as QC
 
-evalCostFunction
-  :: Floating a
-  => Expr
-  -> Env a -> a
-evalCostFunction e env =
-  Either.fromRight (error "unexpected error in eval")
-  $ eval env e
 
-evalCostFn
+mkCostFunction
   :: Floating a
-  => Expr
-  -> Fn a
-evalCostFn e = Fn $ \env ->
-  Either.fromRight (error "unexpected error in eval")
-  $ eval env e
+  => ShapeType -> String -> (Double,Double)
+  -> Either EvalErr (Env a -> a)
+mkCostFunction st h loc =
+  evalCostFunction
+  <$> mkCostFunctionExpr st h loc
 
 mkCostFn
   :: Floating a
@@ -57,24 +50,23 @@ mkCostFn st h loc =
   evalCostFn
   <$> mkCostFunctionExpr st h loc
 
-testCostFn
-  :: ShapeType -> String
-  -> ((Double,Double) -> Fn Double)
-  -> QC.Property
-testCostFn st h cf =
-  QC.forAll genLoc $ \loc ->
-  QC.forAll (genEnv st) $ \env ->
-    (($ env) . applyFn <$> mkCostFn st h loc)
-    QC.=== Right (applyFn (cf loc) env)
-
-evalEqualityConstraint
+mkEqualityConstraints
   :: Floating a
-  => Expr -> Double
-  -> Env a -> a
-evalEqualityConstraint e v env =
-  Either.fromRight (error "unexpected error in eval")
-  $ eval env
-  $ e - Val v
+  => ShapeType -> String -> Env Double
+  -> Either EvalErr [Env a -> a]
+mkEqualityConstraints st h vals =
+  fmap (uncurry evalEqualityConstraint)
+  <$> mkEqualityConstraintExprs st h vals
+
+mkEqualityConstraintFns
+  :: Floating a
+  => ShapeType -> String -> Env Double
+  -> Either EvalErr [Fn a]
+mkEqualityConstraintFns st h vals =
+  fmap (uncurry evalEqualityConstraintFn)
+  <$> mkEqualityConstraintExprs st h vals
+
+
 
 mkCostFunctionExpr
   :: ShapeType -> String -> (Double,Double)
@@ -102,33 +94,123 @@ mkEqualityConstraintExprs st h vals = do
 
 mkShapeEnv :: ShapeType -> Either EvalErr (Env Expr)
 mkShapeEnv st =
-  extendEnv (shapeDefs st)
-  $ Map.mapWithKey (const . Var)
-  $ shapeParams st
-
-extendEnv :: Floating a => Env Expr -> Env a -> Either EvalErr (Env a)
-extendEnv es env =
-  Map.foldlWithKey extM (return env) es
+  Map.foldlWithKey
+    ( \menv x e -> menv >>= extend x e )
+    menv0
+    $ shapeDefs st
   where
-  extM envM x e = envM >>= \env -> do
+  extend x e env = do
     v <- eval env e
     return $ Map.insert x v env
+  menv0 =
+    return
+    $ Map.mapWithKey (const . Var)
+    $ shapeParams st
 
-mkCostFunction
-  :: Floating a
-  => ShapeType -> String -> (Double,Double)
-  -> Either EvalErr (Env a -> a)
-mkCostFunction st h loc =
-  evalCostFunction
-  <$> mkCostFunctionExpr st h loc
 
-mkEqualityConstraints
+evalCostFunction
   :: Floating a
-  => ShapeType -> String -> Env Double
-  -> Either EvalErr [Env a -> a]
-mkEqualityConstraints st h vals =
-  fmap (uncurry evalEqualityConstraint)
-  <$> mkEqualityConstraintExprs st h vals
+  => Expr
+  -> Env a -> a
+evalCostFunction =
+  unsafeEval
+
+evalCostFn
+  :: Floating a
+  => Expr
+  -> Fn a
+evalCostFn e = Fn
+  $ evalCostFunction e
+
+evalEqualityConstraint
+  :: Floating a
+  => Expr -> Double
+  -> Env a -> a
+evalEqualityConstraint e v =
+  unsafeEval
+  $ e - Val v
+
+evalEqualityConstraintFn
+  :: Floating a
+  => Expr -> Double
+  -> Fn a
+evalEqualityConstraintFn e v = Fn
+  $ evalEqualityConstraint e v
+
+unsafeEval :: Floating a => Expr -> Env a -> a
+unsafeEval e =
+  either
+    ( error . ("unexpected error in eval: " ++) . show
+    ) id
+  . (`eval` e)
+
+
+-- Fn {{{
+
+-- our own CC data type, to avoid orphan instances
+data Fn a = Fn
+  { apFn :: forall s. Reifies s Tape => Env (Reverse s a) -> Reverse s a
+  }
+
+applyFn :: (Ord a, Floating a) => Fn a -> Env a -> a
+applyFn fn env = AD.eval (apFn fn) env
+
+instance Num a => Num (Fn a) where
+  (+) = fn2 (+)
+  (*) = fn2 (*)
+  (-) = fn2 (-)
+  abs = fn1 abs
+  signum = fn1 signum
+  fromInteger i = fn0 $ fromInteger i
+
+instance Fractional a => Fractional (Fn a) where
+  (/)          = fn2 (/)
+  fromRational r = fn0 $ fromRational r
+
+instance Floating a => Floating (Fn a) where
+  pi    = fn0 pi
+  exp   = fn1 exp
+  log   = fn1 log
+  (**)  = fn2 (**)
+  sqrt  = fn1 sqrt
+  sin   = fn1 sin
+  cos   = fn1 cos
+  asin  = fn1 asin
+  acos  = fn1 acos
+  atan  = fn1 atan
+  sinh  = fn1 sinh
+  cosh  = fn1 cosh
+  asinh = fn1 asinh
+  acosh = fn1 acosh
+  atanh = fn1 atanh
+
+fn0 :: (forall s. Reifies s Tape => Reverse s a)
+    -> Fn a
+fn0 f = Fn $ \_ -> f
+
+fn1 :: (forall s. Reifies s Tape => Reverse s a -> Reverse s a)
+    -> Fn a -> Fn a
+fn1 f (Fn x) = Fn $ \env -> f (x env)
+
+fn2 :: (forall s. Reifies s Tape => Reverse s a -> Reverse s a -> Reverse s a)
+    -> Fn a -> Fn a -> Fn a
+fn2 f (Fn x) (Fn y) = Fn $ \env -> f (x env) (y env)
+
+var :: String -> Fn a
+var x = Fn $ (Map.! x)
+
+dbl :: Fractional a => Double -> Fn a
+dbl n = fn0 $ auto $ realToFrac n
+
+-- }}}
+
+euclDist :: Floating a => (a,a) -> (a,a) -> a
+euclDist (x1,y1) (x2,y2) =
+  sqrt $ (x2 - x1) ** 2
+       + (y2 - y1) ** 2
+
+
+-- Tests {{{
 
 testCostFunctionExpr
   :: ShapeType
@@ -149,6 +231,16 @@ testCostFunction st h cf =
   QC.forAll (genEnv st) $ \env ->
     (($ env) <$> mkCostFunction st h loc)
     QC.=== Right (cf loc env)
+
+testCostFn
+  :: ShapeType -> String
+  -> ((Double,Double) -> Fn Double)
+  -> QC.Property
+testCostFn st h cf =
+  QC.forAll genLoc $ \loc ->
+  QC.forAll (genEnv st) $ \env ->
+    (($ env) . applyFn <$> mkCostFn st h loc)
+    QC.=== Right (applyFn (cf loc) env)
 
 testEqualityConstraintExprs
   :: ShapeType -> String
@@ -619,65 +711,6 @@ cf_rot_rect_rb (x',y') env =
 
 -- }}}
 
--- Fn {{{
-
--- our own CC data type, to avoid orphan instances
-data Fn a = Fn
-  { apFn :: forall s. Reifies s Tape => Env (Reverse s a) -> Reverse s a
-  }
-
-applyFn :: (Ord a, Floating a) => Fn a -> Env a -> a
-applyFn fn env = AD.eval (apFn fn) env
-
-instance Num a => Num (Fn a) where
-  (+) = fn2 (+)
-  (*) = fn2 (*)
-  (-) = fn2 (-)
-  abs = fn1 abs
-  signum = fn1 signum
-  fromInteger i = fn0 $ fromInteger i
-
-instance Fractional a => Fractional (Fn a) where
-  (/)          = fn2 (/)
-  fromRational r = fn0 $ fromRational r
-
-instance Floating a => Floating (Fn a) where
-  pi    = fn0 pi
-  exp   = fn1 exp
-  log   = fn1 log
-  (**)  = fn2 (**)
-  sqrt  = fn1 sqrt
-  sin   = fn1 sin
-  cos   = fn1 cos
-  asin  = fn1 asin
-  acos  = fn1 acos
-  atan  = fn1 atan
-  sinh  = fn1 sinh
-  cosh  = fn1 cosh
-  asinh = fn1 asinh
-  acosh = fn1 acosh
-  atanh = fn1 atanh
-
-fn0 :: (forall s. Reifies s Tape => Reverse s a)
-    -> Fn a
-fn0 f = Fn $ \_ -> f
-
-fn1 :: (forall s. Reifies s Tape => Reverse s a -> Reverse s a)
-    -> Fn a -> Fn a
-fn1 f (Fn x) = Fn $ \env -> f (x env)
-
-fn2 :: (forall s. Reifies s Tape => Reverse s a -> Reverse s a -> Reverse s a)
-    -> Fn a -> Fn a -> Fn a
-fn2 f (Fn x) (Fn y) = Fn $ \env -> f (x env) (y env)
-
-var :: String -> Fn a
-var x = Fn $ (Map.! x)
-
-dbl :: Fractional a => Double -> Fn a
-dbl n = fn0 $ auto $ realToFrac n
-
--- }}}
-
 genLoc :: QC.Gen (Double,Double)
 genLoc = (,) <$> g <*> g
   where
@@ -688,10 +721,7 @@ genEnv = sequenceA . (g <$) . shapeParams
   where
   g = QC.scale (2 *) $ QC.arbitrary `QC.suchThat` (>= 0)
 
-euclDist :: Floating a => (a,a) -> (a,a) -> a
-euclDist (x1,y1) (x2,y2) =
-  sqrt $ (x2 - x1) ** 2
-       + (y2 - y1) ** 2
+-- }}}
 
 {-
 -- {{{

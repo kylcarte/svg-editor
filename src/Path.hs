@@ -12,14 +12,16 @@ module Path where
 data Cmd a
   = MoveTo Bool a a
   | LineTo Bool a a
-  | Close
   deriving (Eq,Ord,Show,Functor,Foldable,Traversable)
 
 data Path a
-  = Open [Cmd a]
-  | Closed [Cmd a]
+  = Path Bool [Cmd a]
   deriving (Eq,Ord,Show,Functor,Foldable,Traversable)
 -- type Path a = [Cmd a]
+
+closedPath, openPath :: [Cmd a] -> Path a
+closedPath = Path True
+openPath = Path False
 
 _m, _M, _l, _L :: a -> a -> Cmd a
 _m = MoveTo False

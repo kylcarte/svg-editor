@@ -62,7 +62,7 @@ rectangle = ShapeType
                     , ( "top"    , - "h" / 2 )
                     , ( "bottom" , "h" / 2 )
                     ]
-  , shapeRender   = Closed
+  , shapeRender   = closedPath
                     [ _M "cx" "cy"
                     , _m "left" "top"
                     , _l "w" 0
@@ -94,7 +94,7 @@ rotatableRectangle = ShapeType
                     , ( "top"    , - "h" / 2 )
                     , ( "bottom" , "h" / 2 )
                     ]
-  , shapeRender   = Closed
+  , shapeRender   = closedPath
                     [ _M "cx" "cy"
                     , _m ("left" * cos "theta" - "top" * sin "theta")
                          ("left" * sin "theta" + "top" * cos "theta")

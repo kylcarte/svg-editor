@@ -234,8 +234,26 @@ test0 = optimize
   , 60 -- cy
   ]
 
-test1 :: [Float]
-test1 = optimize
+test_rot_rect_converging :: [Float]
+test_rot_rect_converging = optimize
+  ( initParams $ \c [w,h,cx,cy,theta] ->
+    distsq (50,50) (cx + 10 * cos theta,cy + 10 * sin theta)
+    + penalties c
+      [ 50 - w  , w  - 50
+      , 30 - h  , h  - 30
+      , 40 - cx , cx - 40
+      , 40 - cy , cy - 40
+      ]
+  )
+  [ 50 -- w
+  , 30 -- h
+  , 40 -- cx
+  , 40 -- cy
+  , 0  -- theta
+  ]
+
+test_rot_rect_diverging :: [Float]
+test_rot_rect_diverging = optimize
   ( initParams $ \c [w,h,cx,cy,theta] ->
     distsq (50,60) (cx + 10 * cos theta,cy + 10 * sin theta)
     + penalties c

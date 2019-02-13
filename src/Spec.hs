@@ -28,6 +28,12 @@ data ShapeType = ShapeType
   , shapeControls :: Env FixedVals
   } deriving (Eq,Ord,Show)
 
+evalWithShape :: Floating a
+  => ShapeType -> Env a -> Expr -> Either EvalErr a
+evalWithShape st env e = do
+  env' <- traverse (eval env) $ shapeDefs st
+  eval (env <> env') e
+
 shapeBindings :: ShapeType -> Env Expr
 shapeBindings st =
   (Map.mapWithKey (const . Var) $ shapeParams st)

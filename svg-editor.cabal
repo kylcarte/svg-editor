@@ -30,8 +30,8 @@ library
       Doc
       Expr
       Interface
+      Opt
       Path
-      Solve
       Spec
   other-modules:
       Paths_svg_editor
@@ -42,10 +42,11 @@ library
     , reflection
     , base >=4.7 && <5
     , containers
+    , gloss
     , text
     , text-builder
     , transformers
-    , threepenny-gui
+    -- , threepenny-gui
     , QuickCheck
   default-language: Haskell2010
 

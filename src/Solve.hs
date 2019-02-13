@@ -33,10 +33,21 @@ import qualified Data.Either as Either
 
 import qualified Test.QuickCheck as QC
 
+solveHandleMove
+  :: Floating a
+  => ShapeType -> String
+  -> (Double,Double) -> Env Double
+  -> Either EvalErr [Env a]
+solveHandleMove st h loc vals = do
+  cf  <- mkCostFunction st h loc
+  ecs <- mkEqualityConstraints st h vals
+  undefined
+
 
 mkCostFunction
   :: Floating a
-  => ShapeType -> String -> (Double,Double)
+  => ShapeType -> String
+  -> (Double,Double)
   -> Either EvalErr (Env a -> a)
 mkCostFunction st h loc =
   evalCostFunction
@@ -44,7 +55,8 @@ mkCostFunction st h loc =
 
 mkCostFn
   :: Floating a
-  => ShapeType -> String -> (Double,Double)
+  => ShapeType -> String
+  -> (Double,Double)
   -> Either EvalErr (Fn a)
 mkCostFn st h loc =
   evalCostFn
@@ -52,7 +64,8 @@ mkCostFn st h loc =
 
 mkEqualityConstraints
   :: Floating a
-  => ShapeType -> String -> Env Double
+  => ShapeType -> String
+  -> Env Double
   -> Either EvalErr [Env a -> a]
 mkEqualityConstraints st h vals =
   fmap (uncurry evalEqualityConstraint)
@@ -60,7 +73,8 @@ mkEqualityConstraints st h vals =
 
 mkEqualityConstraintFns
   :: Floating a
-  => ShapeType -> String -> Env Double
+  => ShapeType -> String
+  -> Env Double
   -> Either EvalErr [Fn a]
 mkEqualityConstraintFns st h vals =
   fmap (uncurry evalEqualityConstraintFn)
@@ -69,7 +83,8 @@ mkEqualityConstraintFns st h vals =
 
 
 mkCostFunctionExpr
-  :: ShapeType -> String -> (Double,Double)
+  :: ShapeType -> String
+  -> (Double,Double)
   -> Either EvalErr Expr
 mkCostFunctionExpr st h (hx,hy) = do
   env <- mkShapeEnv st
@@ -81,7 +96,8 @@ mkCostFunctionExpr st h (hx,hy) = do
     (Val hx,Val hy)
 
 mkEqualityConstraintExprs
-  :: ShapeType -> String -> Env Double
+  :: ShapeType -> String
+  -> Env Double
   -> Either EvalErr [(Expr,Double)]
 mkEqualityConstraintExprs st h vals = do
   env <- mkShapeEnv st
@@ -91,6 +107,8 @@ mkEqualityConstraintExprs st h vals = do
       e' <- eval env e
       (,) e' <$> eval vals e'
     ) fixedExprs
+
+-- Helpers {{{
 
 mkShapeEnv :: ShapeType -> Either EvalErr (Env Expr)
 mkShapeEnv st =
@@ -106,6 +124,14 @@ mkShapeEnv st =
     return
     $ Map.mapWithKey (const . Var)
     $ shapeParams st
+
+euclDist :: Floating a => (a,a) -> (a,a) -> a
+euclDist (x1,y1) (x2,y2) =
+  sqrt $ (x2 - x1) ** 2
+       + (y2 - y1) ** 2
+
+-- }}}
+
 
 
 evalCostFunction
@@ -203,12 +229,6 @@ dbl :: Fractional a => Double -> Fn a
 dbl n = fn0 $ auto $ realToFrac n
 
 -- }}}
-
-euclDist :: Floating a => (a,a) -> (a,a) -> a
-euclDist (x1,y1) (x2,y2) =
-  sqrt $ (x2 - x1) ** 2
-       + (y2 - y1) ** 2
-
 
 -- Tests {{{
 

@@ -62,12 +62,12 @@ rectangle = ShapeType
                     , ( "top"    , - "h" / 2 )
                     , ( "bottom" , "h" / 2 )
                     ]
-  , shapeRender   = [ _M "cx" "cy"
+  , shapeRender   = Closed
+                    [ _M "cx" "cy"
                     , _m "left" "top"
                     , _l "w" 0
                     , _l 0 "h"
                     , _l (- "w") 0
-                    , _z
                     ]
   , shapeHandles  = [ ( "lt" , ("cx" + "left"  , "cy" + "top") )
                     , ( "rt" , ("cx" + "right" , "cy" + "top") )
@@ -94,13 +94,13 @@ rotatableRectangle = ShapeType
                     , ( "top"    , - "h" / 2 )
                     , ( "bottom" , "h" / 2 )
                     ]
-  , shapeRender   = [ _M "cx" "cy"
+  , shapeRender   = Closed
+                    [ _M "cx" "cy"
                     , _m ("left" * cos "theta" - "top" * sin "theta")
                          ("left" * sin "theta" + "top" * cos "theta")
                     , _l ("w" * cos "theta") ("w" * sin "theta")
                     , _l (- "h" * sin "theta") ("h" * cos "theta")
                     , _l (- "w" * cos "theta") (- "w" * sin "theta")
-                    , _z
                     ]
   , shapeHandles  = [ ( "lt" , ( "cx" + "left" * cos "theta" - "top" * sin "theta"
                                , "cy" + "left" * sin "theta" + "top" * cos "theta"

@@ -1,3 +1,4 @@
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE LambdaCase #-}
 
 module Interface where
@@ -12,28 +13,103 @@ import qualified Data.Maybe as Maybe
 import Control.Arrow ((***))
 import Control.Monad.Trans.RWS
 import Data.Monoid (First(..))
+import Data.Set (Set)
+import qualified Data.Set as Set
+import qualified Data.Map as Map
+import Data.Sequence (Seq, ViewL(..), ViewR(..))
+import qualified Data.Sequence as Seq
 
 type R = Float
 
-data EdState = EdState
-  { edSpec :: ShapeType -- Spec, but single shape definition
-  , edDoc  :: Env R     -- Doc, but single shape instance
+data Editor = Editor
+  { edSpec   :: ShapeType -- Spec, but single shape definition
+  , edDoc    :: Env R     -- Doc, but single shape instance
+  , edCursor :: Point
+  , edScale  :: Float
+  , edActive :: ActiveHandles -- Handle name
   } deriving (Eq,Ord,Show)
--- Float or Double?
+-- R as Float or Double?
+-- * gloss uses Float
+
+type ActiveHandles = Seq String
+
+-- Editor {{{
+
+initEditor :: ShapeType -> Env R -> Editor
+initEditor st env = Editor
+  { edSpec   = st
+  , edDoc    = env
+  , edCursor = (0,0)
+  , edScale  = 1
+  , edActive = Seq.empty
+  }
+
+scaleEditor :: Float -> Editor -> Editor
+scaleEditor s e = e { edScale = s * edScale e }
+
+cursorRadius :: Float
+cursorRadius = 2
+
+-- }}}
 
 -- Rendering {{{
 
-edRender :: (Float,Float) -> EdState -> Picture
-edRender (w,h) s =
-  translate (-w/2) (-h/2)
-  $ scale 2 2
-  $ case traverse (evalWithShape st env) path of
-      Left err -> renderMsg $ show err
-      Right p  -> renderPath p
+drawEditor :: Editor -> Picture
+drawEditor ed =
+  scale sc sc
+  $ pictures
+  [ drawShape st env
+  , drawHandles active st env
+  , drawCursor curs
+  ]
   where
-  st   = edSpec s
-  path = shapeRender st
-  env  = edDoc s
+  st     = edSpec ed
+  env    = edDoc ed
+  curs   = edCursor ed
+  sc     = edScale ed
+  active = edActive ed
+
+drawShape :: ShapeType -> Env R -> Picture
+drawShape st env =
+  drawEval renderPath
+  $ traverse (evalWithShape st env)
+  $ shapeRender st
+
+drawHandles :: ActiveHandles -> ShapeType -> Env R -> Picture
+drawHandles active st env =
+  drawEval
+  ( Map.foldMapWithKey
+  $ drawHandle active 
+  ) $ evalHandles st env
+
+drawEval :: (a -> Picture) -> Either EvalErr a -> Picture
+drawEval = either (renderMsg . show)
+
+drawHandle :: ActiveHandles -> String -> Point -> Picture
+drawHandle active h p =
+  uncurry translate p
+  $ color hColor
+  $ circle cursorRadius
+  where
+  hColor, cFocus, cActive, cInactive :: Color
+  hColor = case Seq.viewl active of
+    h' :< hs
+      | h == h' 
+      -> cFocus
+      | any (h ==) hs
+      -> cActive
+    _ -> cInactive
+  cFocus    = blendColors red orange
+  cInactive = greyN 0.5
+  cActive   = blendColors cFocus cInactive
+
+drawCursor :: Point -> Picture
+drawCursor curs =
+  uncurry translate curs
+  $ color
+    ( blendColors blue green
+    )
+  $ circle cursorRadius
 
 renderMsg :: String -> Picture
 renderMsg msg =
@@ -82,74 +158,16 @@ renderPath (Path close cs) =
   where
   (c,acc,p) = foldl (execCmd close) ((0,0),id,mempty) cs
 
-{-
-  mappend
-  ( case (isClosed,p0) of
-      (True,First (Just start)) ->
-        line [pt end,pt start]
-      _ -> mempty
-  ) p
-  where
-  (_,end,(p0,p)) = runRWS (mapM_ execCmd cs) () (0,0)
--}
-
-{-
-execCmd :: Cmd R -> RWS () (First (R,R),Picture) (R,R) ()
-  -- (first line head, cumulative picture), cursor
-execCmd = \case
-  MoveTo isAbs x' y' ->
-    modify $ move isAbs x' y'
-  LineTo isAbs x' y' -> do
-    c <- get
-    let c' = move isAbs x' y' c
-    tell ( First $ Just c
-         , line [pt c,pt c']
-         )
-    put c'
-  where
-  move :: Bool -> R -> R -> (R,R) -> (R,R)
-  move isAbs x' y'
-    | isAbs = const x' *** const y'
-    | otherwise = (x' +) *** (y' +)
--}
-
-{-
-renderPath :: Path R -> Picture
-renderPath (Path isClosed cs) =
-  renderMsg $ unlines
-    [ "closed: " ++ show isClosed
-    , show (s,ss)
-    ]
-  -- if isClosed && null ss
-  -- then mkPolygon s
-  -- else mkLines $ s0 : ss
-  where
-  (s,ss) = splitSegments cs
-  s0 = ((True,0,0),s)
--}
-
-{-
-segmentText :: [Point] -> Picture
-segmentText = _
--}
 
 mkPolygon :: [(Bool,R,R)] -> Picture
 mkPolygon s =
   polygon
-  -- segmentText
   $ snd
   $ execRWS (processSegment s) () (0,0)
 
 mkLines :: [((Bool,R,R),[(Bool,R,R)])] -> Picture
 mkLines ss =
   foldMap line
-  -- foldr
-  --   ( \(i,ps) ->
-  --     mappend
-  --     $ translate 0 (i * l)
-  --     $ segmentText ps
-  --   ) mempty
-  -- $ zip [0..]
   $ snd
   $ execRWS (processLines ss) () (0,0)
   where
@@ -176,26 +194,91 @@ processSegment = mapM_ $ \(isAbs,x',y') -> do
 pt :: Real a => (a,a) -> Point
 pt = realToFrac *** realToFrac
 
-splitSegments :: [Cmd R] -> ([(Bool,R,R)],[((Bool,R,R),[(Bool,R,R)])])
-splitSegments = splitEither $ \case
-  LineTo isAbs x' y' -> Right (isAbs,x',y')
-  MoveTo isAbs x' y' -> Left  (isAbs,x',y')
+-- }}}
 
-splitEither :: (a -> Either b c) -> [a] -> ([c],[(b,[c])])
-splitEither f =
-  foldr
-  (\a (cs,rest) ->
-    case f a of
-      Left b  -> ([], (b,cs) : rest)
-      Right c -> (c : cs, rest)
-  )
-  ([],[])
+-- Handles {{{
+
+{-
+drawHandles :: Point -> ShapeType -> Env R -> Picture
+drawHandles curs st env =
+  drawEval st env
+    (\ev (x,y) -> (,) <$> ev x <*> ev y)
+    ( foldMap
+    $ drawHandle
+    $ inRadius cursorRadius curs
+    )
+  $ shapeHandles st
+
+drawHandle :: (Point -> Bool) -> Point -> Picture
+drawHandle active p =
+  uncurry translate p
+  $ color 
+    ( if active p
+      then addColors red orange
+      else greyN 0.5
+    )
+  $ circle cursorRadius
+-}
+
+evalHandles :: ShapeType -> Env R -> Either EvalErr (Env (R,R))
+evalHandles st env =
+  traverse (\(x,y) -> (,) <$> ev x <*> ev y)
+  $ shapeHandles st
+  where
+  ev = evalWithShape st env
+
+activeHandles :: Point -> ShapeType -> Env R -> Seq String
+activeHandles curs st env =
+  either (const Seq.empty)
+    ( Map.foldMapWithKey $ \h p ->
+      if inRadius cursorRadius curs p
+      then Seq.singleton h
+      else Seq.empty
+    )
+  $ evalHandles st env
+
+seqFwd, seqBwd :: Seq a -> Seq a
+seqFwd s
+  | x :< xs <- Seq.viewl s
+  = xs Seq.|> x
+  | otherwise
+  = Seq.empty
+
+seqBwd s
+  | xs :> x <- Seq.viewr s
+  = x Seq.<| xs
+  | otherwise
+  = Seq.empty
 
 -- }}}
 
-edHandle :: Event -> EdState -> EdState
-edHandle = const id
+handleEvent :: Event -> Editor -> Editor
+handleEvent ev ed
+  | EventMotion (scalePt (recip sc) -> curs') <- ev
+  = ed { edCursor = curs'
+       , edActive = activeHandles curs' st env
+       }
+  | EventKey (SpecialKey KeyUp) Down _ _ <- ev
+  = ed { edActive = seqFwd $ edActive ed }
+  | EventKey (SpecialKey KeyDown) Down _ _ <- ev
+  = ed { edActive = seqBwd $ edActive ed }
+  | otherwise
+  = ed
+  where
+  sc  = edScale ed
+  st  = edSpec ed
+  env = edDoc ed
 
-edTick :: Float -> EdState -> EdState
-edTick = const id
+stepEditor :: Float -> Editor -> Editor
+stepEditor = const id
+
+scalePt :: Float -> Point -> Point
+scalePt s (x,y) = (s * x, s * y)
+
+inRadius :: Float -> Point -> Point -> Bool
+inRadius r (x,y) (x',y') =
+  r ^ 2 >= (x' - x) ^ 2 + (y' - y) ^ 2
+
+blendColors :: Color -> Color -> Color
+blendColors = mixColors 0.5 0.5
 

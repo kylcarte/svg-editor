@@ -43,6 +43,7 @@ library
     , base >=4.7 && <5
     , containers
     , gloss
+    , stm
     , text
     , text-builder
     , transformers
@@ -58,6 +59,7 @@ executable svg-editor
       base >=4.7 && <5
     , containers
     , gloss
+    , stm
     , svg-editor
   ghc-options: -Wall
 

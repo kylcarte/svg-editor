@@ -13,24 +13,25 @@ main = play
   white
   60
   initState
-  (edRender windowSize)
-  edHandle
-  edTick
+  drawEditor
+  handleEvent
+  stepEditor
   where
   windowSize :: Num a => (a,a)
-  windowSize = (400,400)
+  windowSize = (600,600)
   windowPos :: Num a => (a,a)
   windowPos = (50,50)
 
-initState :: EdState
-initState = EdState
-  { edSpec = rotatableRectangle
-  , edDoc  = Map.fromList
-    [ ( "w"     , 50 )
-    , ( "h"     , 30 )
-    , ( "cx"    , 50 )
-    , ( "cy"    , 50 )
-    , ( "theta" , pi / 6 )
-    ]
-  }
+initState :: Editor
+initState =
+  scaleEditor 3
+  $ initEditor
+    rotatableRectangle
+    $ Map.fromList
+      [ ( "w"     , 90 )
+      , ( "h"     , 30 )
+      , ( "cx"    , 0 )
+      , ( "cy"    , 0 )
+      , ( "theta" , (-pi) / 5 )
+      ]
 

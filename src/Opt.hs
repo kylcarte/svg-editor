@@ -1,55 +1,55 @@
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE AllowAmbiguousTypes, RankNTypes, UnicodeSyntax, NoMonomorphismRestriction #-}
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ConstraintKinds, RankNTypes, NoMonomorphismRestriction #-}
 
 module Opt where
 
 import Numeric.AD
+import qualified Data.Foldable as F
+import Data.Map (Map)
+import qualified Data.Map as Map
 
 -- Utils {{{
 
 ------ Opt types, util functions, and params
+type V = Map String
 type Autofloat a = (RealFloat a, Ord a)
-type ObjFn1 a = forall a . (Autofloat a) => [a] -> a
-type ObjFn2 a = forall a . (Autofloat a) => [a] -> [a] -> a
-type GradFn a = forall a . (Autofloat a) => [a] -> [a]
+type AugObjFn = forall a. Autofloat a => a -> V a -> a
+type ObjFn    = forall a. Autofloat a => V a -> a
+type ObjFnD   = forall a. Autofloat a => V a -> V a -> a
+type GradFn   = forall a. Autofloat a => V a -> V a
 
 infixl 6 +., -.
 infixl 7 *.
 
 -- assumes lists are of the same length
-dotL :: (RealFloat a, Floating a) => [a] -> [a] -> a
-dotL u v = if not $ length u == length v
-           then error $ "can't dot-prod different-len lists: " ++ (show $ length u) ++ " " ++ (show $ length v)
-           else sum $ zipWith (*) u v
+dotV :: Num a => V a -> V a -> a
+dotV u v = sum $ Map.intersectionWith (*) u v
 
-(+.) :: Floating a => [a] -> [a] -> [a] -- add two vectors
-(+.) u v = if not $ length u == length v
-           then error $ "can't add different-len lists: " ++ (show $ length u) ++ " " ++ (show $ length v)
-           else zipWith (+) u v
+(+.) :: Num a => V a -> V a -> V a -- add two vectors
+(+.) = Map.unionWith (+)
 
-(-.) :: Floating a => [a] -> [a] -> [a] -- subtract two vectors
-(-.) u v = if not $ length u == length v
-           then error $ "can't subtract different-len lists: " ++ (show $ length u) ++ " " ++ (show $ length v)
-           else zipWith (-) u v
+negV :: Num a => V a -> V a
+negV = fmap negate
 
-negL :: Floating a => [a] -> [a]
-negL = map negate
+(-.) :: Num a => V a -> V a -> V a -- subtract two vectors
+(-.) u = (u +.) . negV
 
-(*.) :: Floating a => a -> [a] -> [a] -- multiply by a constant
-(*.) c v = map ((*) c) v
+(*.) :: Num a => a -> V a -> V a -- multiply by a constant
+(*.) c v = fmap ((*) c) v
 
-distsq :: Floating a => (a, a) -> (a, a) -> a -- distance
+apV :: (a -> b -> c) -> V a -> V b -> V c
+apV = Map.intersectionWith
+
+distsq :: Num a => (a, a) -> (a, a) -> a -- distance
 distsq (x1, y1) (x2, y2) = (x1 - x2)^2 + (y1 - y2)^2
 
-norm :: Floating a => [a] -> a
-norm v = sqrt ((sum $ map (^ 2) v) + epsd)
-
-r2f :: (Fractional b, Real a) => a -> b
-r2f = realToFrac
+norm :: Floating a => V a -> a
+norm v = sqrt ((sum $ fmap (^ 2) v) + epsd)
 
 epsd :: Floating a => a -- to prevent 1/0 (infinity). put it in the denominator
 epsd = 10 ** (-10)
+
+r2f :: (Fractional b, Real a) => a -> b
+r2f = realToFrac
 
 ----- Various consts
 
@@ -62,9 +62,9 @@ infinity = 1/0
 -- }}}
 
 data Params = Params
-  { weight :: Float
-  , optStatus :: OptStatus
-  , overallObjFn :: forall a. Autofloat a => a -> [a] -> a
+  { weight       :: Float
+  , optStatus    :: OptStatus
+  , overallObjFn :: AugObjFn
   }
 
 data OptStatus
@@ -74,9 +74,9 @@ data OptStatus
   | EPConverged
   deriving (Eq,Ord,Show)
 
-type LastEPState = [Float]
+type LastEPState = V Float
 
-optimize :: Autofloat a => Params -> [a] -> [a]
+optimize :: Autofloat a => Params -> V a -> V a
 optimize params vstate =
   fst $ head
   $ dropWhile
@@ -88,7 +88,7 @@ optimize params vstate =
   $ iterate step
   (vstate,params)
 
-step :: (Autofloat a) => ([a],Params) -> ([a], Params)
+step :: (Autofloat a) => (V a,Params) -> (V a, Params)
 step (vstate,params) =
   case optStatus params of
     NewIter ->
@@ -133,10 +133,10 @@ step (vstate,params) =
   where
   (vstate', gradEval) = stepWithObjective params vstate
   stopCond = epStopCond $ weightedObjFn params
-  vstateMono = map r2f vstate
+  vstateMono = fmap r2f vstate
   weightGrowthFactor = 10
 
-stepWithObjective :: (Autofloat a) => Params -> [a] -> ([a], [a])
+stepWithObjective :: (Autofloat a) => Params -> V a -> (V a, V a)
 stepWithObjective params state =
   ( steppedState
   , gradEval
@@ -148,14 +148,14 @@ stepWithObjective params state =
     if isNaN resT
     then nanSub
     else resT
-  steppedState = zipWith (stepT timestep) state gradEval
+  steppedState = apV (stepT timestep) state gradEval
   f          = weightedObjFn params
-  df u x     = gradF x `dotL` u
+  df u x     = gradF x `dotV` u
   gradF      = grad f
   gradEval   = gradF state
-  descentDir = negL gradEval
+  descentDir = negV gradEval
 
-awLineSearch :: (Autofloat b) => ObjFn1 a -> ObjFn2 a -> [b] -> [b] -> b
+awLineSearch :: Autofloat a => ObjFn -> ObjFnD -> V a -> V a -> a
 awLineSearch f df u x0 =
   update 0 (0,infinity) 1
   where
@@ -189,13 +189,13 @@ awLineSearch f df u x0 =
   minInterval = 10 ** (-10)
   maxIteration = 100
 
-epStopCond :: Autofloat a => ([a] -> a) -> [a] -> [a] -> Bool
+epStopCond :: Autofloat a => (V a -> a) -> V a -> V a -> Bool
 epStopCond f x x' =
   (norm (x -. x') <= epStop) || (abs (f x - f x') <= epStop)
   where
   epStop = 10 ** (-5)
 
-initParams :: (forall a. Autofloat a => a -> [a] -> a) -> Params
+initParams :: AugObjFn -> Params
 initParams f = Params
   { weight       = initWeight
   , optStatus    = NewIter
@@ -214,10 +214,11 @@ penalties c = (c *) . sum . map penalty
 stepT :: Num a => a -> a -> a -> a
 stepT dt x dfdx = x - dt * dfdx
 
-weightedObjFn :: Autofloat a => Params -> [a] -> a
+weightedObjFn :: Params -> ObjFn
 weightedObjFn params = overallObjFn params $ r2f $ weight params
 
-test0 :: [Float]
+{-
+test0 :: V Float
 test0 = optimize
   ( initParams $ \c [w,h,cx,cy] ->
       distsq (40,40) (cx,cy)
@@ -234,7 +235,7 @@ test0 = optimize
   , 60 -- cy
   ]
 
-test_rot_rect_converging :: [Float]
+test_rot_rect_converging :: V Float
 test_rot_rect_converging = optimize
   ( initParams $ \c [w,h,cx,cy,theta] ->
     distsq (50,50) (cx + 10 * cos theta,cy + 10 * sin theta)
@@ -252,7 +253,7 @@ test_rot_rect_converging = optimize
   , 0  -- theta
   ]
 
-test_rot_rect_diverging :: [Float]
+test_rot_rect_diverging :: V Float
 test_rot_rect_diverging = optimize
   ( initParams $ \c [w,h,cx,cy,theta] ->
     distsq (50,60) (cx + 10 * cos theta,cy + 10 * sin theta)
@@ -269,4 +270,5 @@ test_rot_rect_diverging = optimize
   , 40 -- cy
   , 0  -- theta
   ]
+-}
 

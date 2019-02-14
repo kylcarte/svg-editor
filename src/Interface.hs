@@ -259,15 +259,16 @@ handleEvent ev ed
        , edActive = activeHandles curs' st env
        }
   | EventKey (SpecialKey KeyUp) Down _ _ <- ev
-  = ed { edActive = seqFwd $ edActive ed }
+  = ed { edActive = seqFwd active }
   | EventKey (SpecialKey KeyDown) Down _ _ <- ev
-  = ed { edActive = seqBwd $ edActive ed }
+  = ed { edActive = seqBwd active }
   | otherwise
   = ed
   where
   sc  = edScale ed
   st  = edSpec ed
   env = edDoc ed
+  active = edActive ed
 
 stepEditor :: Float -> Editor -> Editor
 stepEditor = const id

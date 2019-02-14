@@ -3,9 +3,10 @@
 
 module Interface where
 
-import Spec
 import Expr
+import Opt
 import Path
+import Spec
 
 import Graphics.Gloss.Interface.Pure.Game hiding (Path)
 import qualified Graphics.Gloss.Interface.Pure.Game as Gloss
@@ -27,7 +28,8 @@ data Editor = Editor
   , edCursor :: Point
   , edScale  :: Float
   , edActive :: ActiveHandles -- Handle name
-  } deriving (Eq,Ord,Show)
+  , edOpt    :: Maybe Params
+  }
 -- R as Float or Double?
 -- * gloss uses Float
 
@@ -42,6 +44,7 @@ initEditor st env = Editor
   , edCursor = (0,0)
   , edScale  = 1
   , edActive = Seq.empty
+  , edOpt    = Nothing
   }
 
 scaleEditor :: Float -> Editor -> Editor
@@ -254,14 +257,25 @@ seqBwd s
 
 handleEvent :: Event -> Editor -> Editor
 handleEvent ev ed
+  -- mouse movement
   | EventMotion (scalePt (recip sc) -> curs') <- ev
   = ed { edCursor = curs'
        , edActive = activeHandles curs' st env
        }
+
+  -- selection cycling
   | EventKey (SpecialKey KeyUp) Down _ _ <- ev
   = ed { edActive = seqFwd active }
   | EventKey (SpecialKey KeyDown) Down _ _ <- ev
   = ed { edActive = seqBwd active }
+
+  -- handle dragging
+  | EventKey (MouseButton LeftButton) Down _ _ <- ev
+  , h :< _ <- Seq.viewl active
+  = ed -- TODO
+  | EventKey (MouseButton LeftButton) Up _ _ <- ev
+  = ed { edOpt = Nothing }
+
   | otherwise
   = ed
   where
@@ -269,6 +283,7 @@ handleEvent ev ed
   st  = edSpec ed
   env = edDoc ed
   active = edActive ed
+  opt    = edOpt ed
 
 stepEditor :: Float -> Editor -> Editor
 stepEditor = const id

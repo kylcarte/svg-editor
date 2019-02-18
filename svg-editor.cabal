@@ -31,6 +31,7 @@ library
       Expr
       Interface
       Opt
+      Problem
       Path
       Spec
   other-modules:
@@ -43,9 +44,10 @@ library
     , base >=4.7 && <5
     , containers
     , gloss
-    , stm
-    , text
-    , text-builder
+    -- , stm
+    -- , text
+    -- , text-builder
+    , time
     , transformers
     -- , threepenny-gui
     , QuickCheck
@@ -59,7 +61,8 @@ executable svg-editor
       base >=4.7 && <5
     , containers
     , gloss
-    , stm
+    -- , stm
+    , time
     , svg-editor
   ghc-options: -Wall
 

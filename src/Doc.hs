@@ -6,8 +6,9 @@ import Spec
 import Data.Map (Map)
 import qualified Data.Map as Map
 
-type Doc = Map ShapeID ShapeVal
-type ShapeID = Int
+type ShapeName  = String
+type Doc        = Map InstanceID ShapeVal
+type InstanceID = Int
 
 data ShapeVal = ShapeVal
   { shapeType :: String

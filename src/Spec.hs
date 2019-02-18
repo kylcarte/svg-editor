@@ -28,33 +28,25 @@ data ShapeType = ShapeType
   , shapeControls :: Env FixedVals
   } deriving (Eq,Ord,Show)
 
+type Handle = String
+type FixedVals = Set Expr
+
 evalWithShape :: Floating a
   => ShapeType -> Env a -> Expr -> Either EvalErr a
 evalWithShape st env e = do
   env' <- traverse (eval env) $ shapeDefs st
   eval (env <> env') e
 
-shapeBindings :: ShapeType -> Env Expr
-shapeBindings st =
-  (Map.mapWithKey (const . Var) $ shapeParams st)
-  <> shapeDefs st
-
-handleFixList :: ShapeType -> String -> [Expr]
+handleFixList :: ShapeType -> Handle -> [Expr]
 handleFixList st h =
   foldMap
-  ( foldMap $ \case
-    Var h' | Just (hx',hy') <- Map.lookup h' (shapeHandles st)
-      -> [hx',hy']
-    e -> [e]
-  ) fvs
-  where
-  fvs = Map.lookup h $ shapeControls st
-
-type FixedVals = Set Expr
-
-data Transform
-  = Move
-  deriving (Eq,Ord,Show)
+    ( foldMap $ \case
+      Var x | Just (hx,hy) <- Map.lookup x $ shapeHandles st
+           -> [hx,hy]
+      e    -> [e]
+    )
+  $ Map.lookup h
+  $ shapeControls st
 
 rectangle :: ShapeType
 rectangle = ShapeType
@@ -124,8 +116,12 @@ rotatableRectangle = ShapeType
                                , "cy" + "right" * sin "theta" + "bottom" * cos "theta" 
                                )
                       )
-                    , ( "r"  , ( "cx" + 10 * cos "theta"
-                               , "cy" + 10 * sin "theta"
+                    , ( "r"  , ( "cx" + 30 * cos "theta"
+                               , "cy" + 30 * sin "theta"
+                               )
+                      )
+                    , ( "c"  , ( "cx"
+                               , "cy"
                                )
                       )
                     ]
@@ -134,6 +130,7 @@ rotatableRectangle = ShapeType
                     , ( "lb" , [ "rt", "theta" ] )
                     , ( "rb" , [ "lt", "theta" ] )
                     , ( "r"  , [ "w", "h", "cx", "cy" ] )
+                    , ( "c"  , [ "w", "h", "theta" ] )
                     ]
   }
 

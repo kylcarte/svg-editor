@@ -76,8 +76,8 @@ data OptStatus
 
 type LastEPState = V Float
 
-optimize :: Autofloat a => Params -> V a -> V a
-optimize params vstate =
+runOpt :: Autofloat a => Params -> V a -> V a
+runOpt params vstate =
   fst $ head
   $ dropWhile
     ( not
@@ -143,17 +143,20 @@ stepWithObjective params state =
   )
   where
   timestep =
-    let resT = awLineSearch f df descentDir state
-    in
-    if isNaN resT
-    then nanSub
-    else resT
+    catchNaN
+    $ awLineSearch f df descentDir state
   steppedState = apV (stepT timestep) state gradEval
   f          = weightedObjFn params
   df u x     = gradF x `dotV` u
   gradF      = grad f
   gradEval   = gradF state
   descentDir = negV gradEval
+
+catchNaN :: Autofloat a => a -> a
+catchNaN x =
+  if isNaN x
+  then nanSub
+  else x
 
 awLineSearch :: Autofloat a => ObjFn -> ObjFnD -> V a -> V a -> a
 awLineSearch f df u x0 =

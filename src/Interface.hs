@@ -30,9 +30,18 @@ data Editor = Editor
   -- , edScale  :: Float
   -- , edActive :: ActiveHandles -- Handle name
   -- , edOpt    :: Maybe Params
-  }
+  } deriving (Show)
 -- R as Float or Double?
 -- * gloss uses Float
+
+ppEditor :: Editor -> String
+ppEditor ed = unwords
+  [ showsPrec 11 drag ""
+  , show ps
+  ]
+  where
+  ps   = Map.toList $ edDoc ed
+  drag = edDrag ed
 
 -- type ActiveHandles = Seq String
 
@@ -207,24 +216,25 @@ handleEvent logPath sc ev ed
   -- mouse movement
   | EventMotion (unscalePt sc -> curs) <- ev
   , Just h <- dragging
-  = do writeLog logPath $ unwords
-         [ "drag" , h , show $ fst curs , show $ snd curs ]
+  = do logDrag logPath h curs
        return $! ed
          { edDoc = moveHandle st env h curs
          }
+
+  | EventKey (SpecialKey KeyEnter) Down _ _ <- ev
+  = do logModel logPath ed
+       return ed
 
   -- handle dragging
   | EventKey (MouseButton LeftButton) Down _ (unscalePt sc -> curs) <- ev
   , Right hs <- evalHandles st env
   , Just h <- nearestWithin cursorRadius curs hs
-  = do writeLog logPath $ unwords
-         [ "click" , h , show $ fst curs , show $ snd curs ]
+  = do logClick logPath h curs
        return $! ed
          { edDrag = Just h }
   | EventKey (MouseButton LeftButton) Up _ (unscalePt sc -> curs) <- ev
   , Just h <- dragging
-  = do writeLog logPath $ unwords
-         [ "release" , h , show $ fst curs , show $ snd curs ]
+  = do logRelease logPath h curs
        return $! ed
          { edDrag = Nothing }
 
@@ -239,6 +249,25 @@ writeLog :: FilePath -> String -> IO ()
 writeLog logPath ((++ "\n") -> msg) = do
   putStr msg
   appendFile logPath msg
+
+-- }}}
+
+-- Logging {{{
+
+logClick, logDrag, logRelease :: FilePath -> Handle -> Point -> IO ()
+logClick   = logHandleMsg "click"
+logDrag    = logHandleMsg "drag"
+logRelease = logHandleMsg "release"
+
+logHandleMsg :: String -> FilePath -> Handle -> Point -> IO ()
+logHandleMsg msg logPath h p =
+  writeLog logPath $ unwords
+    [ msg , h , show $ fst p , show $ snd p ]
+
+logModel :: FilePath -> Editor -> IO ()
+logModel logPath ed =
+  writeLog logPath $ unwords
+    [ "model" , ppEditor ed ]
 
 -- }}}
 

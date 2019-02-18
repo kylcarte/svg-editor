@@ -11,7 +11,9 @@ import qualified Data.Time as Time
 main :: IO ()
 main = do
   logPath <- newLogFile
-  putStrLn $ "using log file " ++ logPath
+  putStrLn $ "writing log to file " ++ logPath ++ "\n"
+  logModel logPath initState
+
   playIO
     (InWindow "svg-editor" windowSize windowPos)
     white

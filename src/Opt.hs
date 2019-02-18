@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ConstraintKinds, RankNTypes, NoMonomorphismRestriction #-}
 
 module Opt where
@@ -65,6 +66,8 @@ data Params = Params
   { weight       :: Float
   , optStatus    :: OptStatus
   , overallObjFn :: AugObjFn
+  , epIterLimit  :: Int
+  , lsIterLimit  :: Int
   }
 
 data OptStatus
@@ -79,14 +82,23 @@ type LastEPState = V Float
 runOpt :: Autofloat a => Params -> V a -> V a
 runOpt params vstate =
   fst $ head
-  $ dropWhile
-    ( not
-    . (== EPConverged)
+  $ dropUntilOrN
+    ( (== EPConverged)
     . optStatus
     . snd
     )
+    (epIterLimit params)
   $ iterate step
   (vstate,params)
+
+dropUntilOrN :: (a -> Bool) -> Int -> [a] -> [a]
+dropUntilOrN p n = go 0
+  where
+  go i | i >= n    = id
+       | otherwise = \case
+    x : xs
+      | not (p x) -> go (succ i) xs
+    l             -> l
 
 step :: (Autofloat a) => (V a,Params) -> (V a, Params)
 step (vstate,params) =
@@ -144,13 +156,14 @@ stepWithObjective params state =
   where
   timestep =
     catchNaN
-    $ awLineSearch f df descentDir state
+    $ awLineSearch limit f df descentDir state
   steppedState = apV (stepT timestep) state gradEval
   f          = weightedObjFn params
   df u x     = gradF x `dotV` u
   gradF      = grad f
   gradEval   = gradF state
   descentDir = negV gradEval
+  limit      = lsIterLimit params
 
 catchNaN :: Autofloat a => a -> a
 catchNaN x =
@@ -158,12 +171,12 @@ catchNaN x =
   then nanSub
   else x
 
-awLineSearch :: Autofloat a => ObjFn -> ObjFnD -> V a -> V a -> a
-awLineSearch f df u x0 =
+awLineSearch :: Autofloat a => Int -> ObjFn -> ObjFnD -> V a -> V a -> a
+awLineSearch limit f df u x0 =
   update 0 (0,infinity) 1
   where
   update n i@(a,b) t
-    | n > maxIteration || extent i < minInterval
+    | n >= limit || extent i < minInterval
     = t
 
     | not $ armijo t
@@ -190,7 +203,6 @@ awLineSearch f df u x0 =
   c1 = 0.4
   c2 = 0.2
   minInterval = 10 ** (-10)
-  maxIteration = 100
 
 epStopCond :: Autofloat a => (V a -> a) -> V a -> V a -> Bool
 epStopCond f x x' =
@@ -203,6 +215,8 @@ initParams f = Params
   { weight       = initWeight
   , optStatus    = NewIter
   , overallObjFn = f
+  , epIterLimit  = 100
+  , lsIterLimit  = 100
   }
 
 initWeight :: Floating a => a

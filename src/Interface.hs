@@ -19,31 +19,36 @@ import Data.Monoid (First(..))
 import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Ord as Ord
+import qualified Data.Foldable as F
 -- import Data.Sequence (Seq, ViewL(..), ViewR(..))
 -- import qualified Data.Sequence as Seq
 
 data Editor = Editor
-  { edSpec   :: ShapeType            -- Spec, but single shape definition
-  , edDoc    :: Env Float            -- Doc, but single shape instance
-  , edDrag   :: Maybe Handle -- handle currently being dragged, if any
-  -- , edCursor :: Point
-  -- , edScale  :: Float
-  -- , edActive :: ActiveHandles -- Handle name
-  -- , edOpt    :: Maybe Params
+  { edSpec   :: ShapeType      -- Spec, but single shape definition
+  , edDoc    :: Env Float      -- Doc, but single shape instance
+  , edDrag   :: Maybe Handle   -- handle currently being dragged, if any
   } deriving (Show)
 -- R as Float or Double?
 -- * gloss uses Float
 
+{-
+data LogPaths = LogPaths
+  { genLog :: FilePath
+  , optLog :: FilePath
+  } deriving (Eq,Ord,Show)
+-}
+
 ppEditor :: Editor -> String
 ppEditor ed = unwords
   [ showsPrec 11 drag ""
-  , show ps
+  , ppDoc doc
   ]
   where
-  ps   = Map.toList $ edDoc ed
+  doc  = edDoc ed
   drag = edDrag ed
 
--- type ActiveHandles = Seq String
+ppDoc :: Env Float -> String
+ppDoc = show . Map.toList
 
 -- Editor defaults {{{
 
@@ -52,16 +57,7 @@ initEditor st env = Editor
   { edSpec   = st
   , edDoc    = env
   , edDrag   = Nothing
-  -- , edCursor = (0,0)
-  -- , edScale  = 1
-  -- , edActive = Seq.empty
-  -- , edOpt    = Nothing
   }
-
-{-
-scaleEditor :: Float -> Editor -> Editor
-scaleEditor s e = e { edScale = s * edScale e }
--}
 
 cursorRadius :: Float
 cursorRadius = 2
@@ -216,9 +212,11 @@ handleEvent logPath sc ev ed
   -- mouse movement
   | EventMotion (unscalePt sc -> curs) <- ev
   , Just h <- dragging
-  = do logDrag logPath h curs
+  = do let (itrace,env') = moveHandle st env h curs
+       logDrag logPath h curs
+       logOpt logPath itrace
        return $! ed
-         { edDoc = moveHandle st env h curs
+         { edDoc = env'
          }
 
   | EventKey (SpecialKey KeyEnter) Down _ _ <- ev
@@ -250,6 +248,12 @@ writeLog logPath ((++ "\n") -> msg) = do
   putStr msg
   appendFile logPath msg
 
+logWords :: FilePath -> [String] -> IO ()
+logWords p = writeLog p . unwords
+
+logLines :: FilePath -> [String] -> IO ()
+logLines p = writeLog p . unlines
+
 -- }}}
 
 -- Logging {{{
@@ -261,13 +265,34 @@ logRelease = logHandleMsg "release"
 
 logHandleMsg :: String -> FilePath -> Handle -> Point -> IO ()
 logHandleMsg msg logPath h p =
-  writeLog logPath $ unwords
+  logWords logPath
     [ msg , h , show $ fst p , show $ snd p ]
 
 logModel :: FilePath -> Editor -> IO ()
 logModel logPath ed =
-  writeLog logPath $ unwords
+  logWords logPath
     [ "model" , ppEditor ed ]
+
+logOpt :: FilePath -> IterTrace -> IO ()
+logOpt logPath itrace = do
+  logWords logPath
+    [ "opt"
+    , show $ length itrace
+    , "len"
+    ]
+  logLines logPath $ foldMap
+    ( \(lsi,st) ->
+      [ unwords $ foldMap (pure . show) lsi
+      , show $ Map.toList st
+      ]
+    ) itrace
+      -- foldr
+      -- ( (:) . (_
+      -- -- maybe (show lsLimit) show
+      -- ) [] itrace
+  where
+  epLimit = epIterLimit $ initParams undefined
+  lsLimit = lsIterLimit $ initParams undefined
 
 -- }}}
 

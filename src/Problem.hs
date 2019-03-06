@@ -13,9 +13,13 @@ import qualified Data.Map as Map
 
 -- TODO: control where typechecking happens, make evaluating safe
 
-moveHandle :: ShapeType -> Env Float -> Handle -> (Float,Float) -> Env Float -- (Env Float,String)
+moveHandle :: ShapeType -> Env Float -> Handle -> (Float,Float) -> (IterTrace,Env Float) -- (Env Float,String)
 moveHandle st env h p =
-  runOpt (initParams objFn) env
+  runOpt (genProblem st env h p) env
+
+genProblem :: ShapeType -> Env Float -> Handle -> (Float,Float) -> Params
+genProblem st env h p =
+  initParams objFn
   where
   objFn :: AugObjFn
   objFn c env' =

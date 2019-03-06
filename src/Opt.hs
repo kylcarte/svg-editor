@@ -1,3 +1,4 @@
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ConstraintKinds, RankNTypes, NoMonomorphismRestriction #-}
 
@@ -5,8 +6,11 @@ module Opt where
 
 import Numeric.AD
 import qualified Data.Foldable as F
+import Control.Arrow (second)
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Sequence (Seq,(|>))
+import qualified Data.Sequence as Seq
 
 -- Utils {{{
 
@@ -43,6 +47,9 @@ apV = Map.intersectionWith
 distsq :: Num a => (a, a) -> (a, a) -> a -- distance
 distsq (x1, y1) (x2, y2) = (x1 - x2)^2 + (y1 - y2)^2
 
+dist :: Floating a => (a,a) -> (a,a) -> a
+dist p1 p2 = sqrt $ distsq p1 p2
+
 norm :: Floating a => V a -> a
 norm v = sqrt ((sum $ fmap (^ 2) v) + epsd)
 
@@ -64,98 +71,98 @@ infinity = 1/0
 
 data Params = Params
   { weight       :: Float
-  , optStatus    :: OptStatus
+  , optStatus    :: EPOptStatus
   , overallObjFn :: AugObjFn
   , epIterLimit  :: Int
   , lsIterLimit  :: Int
+  , iterTrace    :: IterTrace
   }
 
-data OptStatus
+type IterTrace = Seq (LSIter,V Float)
+type Iter      = V Float
+type LSIter    = Seq LSStep
+data LSStep
+  = NotArmijo
+  | NotWolfe
+  | LimitReached
+  | IntervalConverged (Float,Float)
+  | LSSuccess
+  deriving (Eq,Ord,Show)
+
+data EPOptStatus
   = NewIter
-  | UnconstrainedRunning LastEPState
-  | UnconstrainedConverged LastEPState
+  | LSRunning EPState
+  | LSConverged EPState
   | EPConverged
   deriving (Eq,Ord,Show)
 
-type LastEPState = V Float
+type EPState = V Float
 
-runOpt :: Autofloat a => Params -> V a -> V a
-runOpt params vstate =
-  fst $ head
-  $ dropUntilOrN
-    ( (== EPConverged)
-    . optStatus
-    . snd
-    )
-    (epIterLimit params)
-  $ iterate step
-  (vstate,params)
-
-dropUntilOrN :: (a -> Bool) -> Int -> [a] -> [a]
-dropUntilOrN p n = go 0
+runOpt :: Autofloat a => Params -> V a -> (IterTrace,V a)
+runOpt = update 0
   where
-  go i | i >= n    = id
-       | otherwise = \case
-    x : xs
-      | not (p x) -> go (succ i) xs
-    l             -> l
-
-step :: (Autofloat a) => (V a,Params) -> (V a, Params)
-step (vstate,params) =
-  case optStatus params of
-    NewIter ->
-      ( vstate'
-      , params
-        { weight    = initWeight
-        , optStatus = UnconstrainedRunning vstateMono
-        }
+  update n params vstate
+    | n >= limit
+    = ( itrace
+      , vstate
       )
+    | otherwise
+    = case optStatus params of
+        NewIter ->
+          update'
+            ( params { optStatus = LSRunning cur
+                     , weight    = initWeight
+                     , iterTrace = itrace |> (lsi,new)
+                     }
+            ) vstate'
+  
+        LSRunning prev ->
+          update'
+            ( if stopCond vstate vstate'
+              then params' { optStatus = LSConverged prev
+                           }
+              else params'
+            ) vstate'
+          where
+          params' = params { iterTrace = itrace |> (lsi,new) }
 
-    UnconstrainedRunning lastEPstate
-      | stopCond vstate vstate' ->
-        ( vstate'
-        , params
-          { optStatus = UnconstrainedConverged lastEPstate
-          }
-        )
-      | otherwise ->
-        ( vstate'
-        , params
-        )
+        LSConverged prev ->
+          update'
+            ( if stopCond prev cur
+              then params' { optStatus = EPConverged
+                           }
+              else params' { optStatus = LSRunning cur
+                           , weight    = growth * weight params
+                           }
+            ) vstate
+          where
+          params' = params { iterTrace = itrace |> (lsi,new) }
 
-    UnconstrainedConverged lastEPstate
-      | stopCond lastEPstate vstateMono ->
-        ( vstate
-        , params
-          { optStatus = EPConverged
-          }
-        )
-      | otherwise ->
-        ( vstate
-        , params
-          { weight = weightGrowthFactor * weight params
-          , optStatus = UnconstrainedRunning vstateMono
-          }
-        )
+        EPConverged{} ->
+          ( itrace
+          , vstate
+          )
+      
+    where
+    limit    = epIterLimit params
+    growth   = 10
+    update'  = update $ succ n
+    itrace   = iterTrace params
+    status   = optStatus params
+    cur      = fmap r2f vstate
+    new      = fmap r2f vstate'
+    stopCond = epStopCond $ weightedObjFn params
+    (lsi, vstate', gradEval) = stepWithObjective params vstate
 
-    EPConverged ->
-      ( vstate
-      , params
-      )
-  where
-  (vstate', gradEval) = stepWithObjective params vstate
-  stopCond = epStopCond $ weightedObjFn params
-  vstateMono = fmap r2f vstate
-  weightGrowthFactor = 10
-
-stepWithObjective :: (Autofloat a) => Params -> V a -> (V a, V a)
+stepWithObjective :: (Autofloat a) => Params -> V a -> (LSIter,V a, V a)
 stepWithObjective params state =
-  ( steppedState
+  ( lsRes
+  , steppedState
   , gradEval
   )
   where
-  timestep =
-    catchNaN
+  (lsRes,timestep) =
+    second catchNaN
     $ awLineSearch limit f df descentDir state
   steppedState = apV (stepT timestep) state gradEval
   f          = weightedObjFn params
@@ -171,28 +178,40 @@ catchNaN x =
   then nanSub
   else x
 
-awLineSearch :: Autofloat a => Int -> ObjFn -> ObjFnD -> V a -> V a -> a
+awLineSearch :: Autofloat a => Int -> ObjFn -> ObjFnD -> V a -> V a -> (LSIter,a)
 awLineSearch limit f df u x0 =
-  update 0 (0,infinity) 1
+  update 0 (0,infinity) (mempty,1)
   where
-  update n i@(a,b) t
-    | n >= limit || extent i < minInterval
-    = t
+  update n i@(a,b) (hist,t)
+    | n >= limit
+    = ( hist |> LimitReached
+      , t
+      )
+    | extent i < minInterval
+    = ( hist |> IntervalConverged (r2f a,r2f b)
+      , t
+      )
 
     | not $ armijo t
     = update' (a,t)
-      $ (a + t) / 2
+      ( hist |> NotArmijo
+      , (a + t) / 2
+      )
 
     | not $ weakWolfe t
     = update' (t,b)
-      $ if b < infinity
+      ( hist |> NotWolfe
+      , if b < infinity
         then (t + b) / 2
         else 2 * t
+      )
 
     | otherwise
-    = t
+    = ( hist |> LSSuccess
+      , t
+      )
     where
-    update' = update (n + 1)
+    update' = update $ succ n
   duf = df u
   armijo t =
     f (x0 +. t *. u) <= f x0 + c1 * t * duf x0
@@ -217,6 +236,7 @@ initParams f = Params
   , overallObjFn = f
   , epIterLimit  = 100
   , lsIterLimit  = 100
+  , iterTrace    = mempty
   }
 
 initWeight :: Floating a => a
@@ -233,6 +253,8 @@ stepT dt x dfdx = x - dt * dfdx
 
 weightedObjFn :: Params -> ObjFn
 weightedObjFn params = overallObjFn params $ r2f $ weight params
+
+-- {{{
 
 {-
 test0 :: V Float
@@ -288,4 +310,6 @@ test_rot_rect_diverging = optimize
   , 0  -- theta
   ]
 -}
+
+-- }}}
 

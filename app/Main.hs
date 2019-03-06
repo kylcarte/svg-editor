@@ -10,8 +10,13 @@ import qualified Data.Time as Time
 
 main :: IO ()
 main = do
-  logPath <- newLogFile
+  ts <- timestamp
+  logPath <- makeLogFile ts
   putStrLn $ "writing log to file " ++ logPath ++ "\n"
+  -- optLogPath <- makeLogFile $ ts ++ "-opt"
+  -- putStrLn $ "writing optimization details to file " ++ optLogPath ++ "\n"
+  -- let paths = LogPaths logPath logPath
+
   logModel logPath initState
 
   playIO
@@ -30,12 +35,16 @@ main = do
   windowPos :: Num a => (a,a)
   windowPos = (50,50)
 
-newLogFile :: IO String
-newLogFile = do
+timestamp :: IO String
+timestamp = do
   time <- Time.getCurrentTime
+  return $ Time.formatTime Time.defaultTimeLocale "%s" time
+
+makeLogFile :: String -> IO FilePath
+makeLogFile name = do
   let path = concat
         [ "log/"
-        , Time.formatTime Time.defaultTimeLocale "%s" time
+        , name
         , ".log"
         ]
   writeFile path ""

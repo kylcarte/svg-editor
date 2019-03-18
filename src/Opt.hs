@@ -234,7 +234,7 @@ initParams f = Params
   { weight       = initWeight
   , optStatus    = NewIter
   , overallObjFn = f
-  , epIterLimit  = 100
+  , epIterLimit  = 200
   , lsIterLimit  = 100
   , iterTrace    = mempty
   }

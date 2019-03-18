@@ -1,6 +1,7 @@
 
 module Main where
 
+import Editor
 import Interface
 import Spec
 

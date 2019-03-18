@@ -29,9 +29,9 @@ data ShapeType = ShapeType
   } deriving (Eq,Ord,Show)
 
 type Handle = String
-type FixedVals = Set Expr
+type FixedVals = [Expr]
 
-evalWithShape :: Floating a
+evalWithShape :: (Floating a, Ord a)
   => ShapeType -> Env a -> Expr -> Either EvalErr a
 evalWithShape st env e = do
   env' <- traverse (eval env) $ shapeDefs st

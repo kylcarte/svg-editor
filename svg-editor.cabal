@@ -28,8 +28,10 @@ source-repository head
 library
   exposed-modules:
       Doc
+      Editor
       Expr
       Interface
+      Interface.Gloss
       Opt
       Problem
       Path

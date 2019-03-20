@@ -56,6 +56,9 @@ norm v = sqrt ((sum $ fmap (^ 2) v) + epsd)
 epsd :: Floating a => a -- to prevent 1/0 (infinity). put it in the denominator
 epsd = 10 ** (-10)
 
+approxEq :: (Floating a, Ord a) => a -> a -> Bool
+approxEq x y = abs (x - y) <= epsd
+
 r2f :: (Fractional b, Real a) => a -> b
 r2f = realToFrac
 
@@ -234,7 +237,7 @@ initParams f = Params
   { weight       = initWeight
   , optStatus    = NewIter
   , overallObjFn = f
-  , epIterLimit  = 200
+  , epIterLimit  = 1000
   , lsIterLimit  = 100
   , iterTrace    = mempty
   }

@@ -51,11 +51,11 @@ library
     -- , text-builder
     , time
     , transformers
-    -- , threepenny-gui
+    , threepenny-gui
     , QuickCheck
   default-language: Haskell2010
 
-executable svg-editor
+executable svg-editor-exe
   hs-source-dirs: app
   main-is: Main.hs
   default-language: Haskell2010

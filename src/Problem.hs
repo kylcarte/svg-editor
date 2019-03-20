@@ -8,9 +8,10 @@ import Expr
 import Opt
 
 import Control.Arrow ((***))
-import Data.Map (Map)
+import Data.Map (Map,(!))
 import qualified Data.Map as Map
 import Numeric.AD
+import Test.QuickCheck
 
 -- TODO: control where typechecking happens, make evaluating safe
 
@@ -34,7 +35,7 @@ genProblem st env h p =
              ) fvs
       let (ps1,ps2) = unzip pps
       return $
-        distsq (abstractPt p) hpos
+        dist (abstractPt p) hpos
         + penalties c (ps1 ++ ps2)
     where
     fixed = handleFixList st h
@@ -71,6 +72,124 @@ evalHandle st env h = do
 
 abstractPt :: Fractional a => (Float,Float) -> (a,a)
 abstractPt = realToFrac *** realToFrac
+
+
+data Test = Test
+  { testShape    :: ShapeType
+  , testEnv      :: Env Float
+  , testHandle   :: Handle
+  , testMovement :: (Float,Float)
+  }
+
+testProblem :: Test -> Params
+testProblem test =
+  genProblem st env h p
+  where
+  st = testShape test
+  env = testEnv test
+  h = testHandle test
+  p = testMovement test
+
+testObjFn :: Test -> AugObjFn
+testObjFn = overallObjFn . testProblem
+
+test1 :: Test
+test1 = Test
+  { testShape    = rotatableRectangle
+  , testEnv      = Map.fromList
+    [ ( "w"     , 90 )
+    , ( "h"     , 30 )
+    , ( "cx"    , 0 )
+    , ( "cy"    , 0 )
+    , ( "theta" , (-pi) / 5 )
+    ]
+  , testHandle   = "r"
+  , testMovement = (74/3,(-17.0))
+  }
+
+expected_objFn1 :: AugObjFn
+expected_objFn1 c env =
+  dist
+    ( env ! "cx" + 30 * cos (env ! "theta")
+    , env ! "cy" + 30 * sin (env ! "theta")
+    )
+    (74/3,(-17))
+  + penalties c
+    [ 90 - env ! "w"
+    , 30 - env ! "h"
+    , 0  - env ! "cx"
+    , 0  - env ! "cy"
+    , env ! "w"  - 90 
+    , env ! "h"  - 30 
+    , env ! "cx"
+    , env ! "cy"
+    ]
+
+{-
+Problem:
+
+min f(w,h,cx,cy,theta) = || (74/3, -17) - (cx + 30*cos(theta), cy + 30*sin(theta)) ||
+subject to:
+  w  = 90
+  h  = 30
+  cx = 0
+  cy = 0
+
+-}
+
+expected_solution1 :: Env Float
+expected_solution1 = Map.fromList
+  [ ("w"  , 90)
+  , ("h"  , 30)
+  , ("cx" , 0)
+  , ("cy" , 0)
+  , ("theta" , atan2 (-17) (74/3))
+  ]
+
+expected_params1 :: Params
+expected_params1 = initParams expected_objFn1
+
+-- snd $ runOpt expected_params1 $ testEnv test1
+
+checkObjFnEqual
+  :: AugObjFn
+  -> AugObjFn
+  -> Float -- penalty weight
+  -> Env Float
+  -> Bool
+checkObjFnEqual f g c env =
+  f c env `approxEq` g c env
+
+checkRotRectangleObjFnEqual
+  :: AugObjFn
+  -> AugObjFn
+  -> Float -- penalty weight
+  -> Float
+  -> Float
+  -> Float
+  -> Float
+  -> Float
+  -> Bool
+checkRotRectangleObjFnEqual f g c w h cx cy theta =
+  checkObjFnEqual f g c env
+  where
+  env = Map.fromList
+    [ ("w"    ,w    )
+    , ("h"    ,h    )
+    , ("cx"   ,cx   )
+    , ("cy"   ,cy   )
+    , ("theta",theta)
+    ]
+
+-- prop_test1 :: Property
+prop_test1 = checkRotRectangleObjFnEqual expected_objFn1 $ testObjFn test1
+
+-- expect `testObjFn test1` equal to `objFn1`
+
+{-
+
+
+-}
 
 testObjFn_rot_rect_r_1 :: Expr
 testObjFn_rot_rect_r_1 =

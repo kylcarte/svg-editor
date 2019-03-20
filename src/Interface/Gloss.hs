@@ -4,7 +4,6 @@
 module Interface.Gloss where
 
 import Editor
-
 import Expr
 import Path
 import Spec

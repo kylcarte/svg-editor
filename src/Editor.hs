@@ -8,6 +8,7 @@ import Spec
 
 import Opt
 import Control.Arrow ((***))
+import Control.Monad (when)
 import Data.Map (Map)
 import qualified Data.Map as Map
 
@@ -37,6 +38,12 @@ ppEditor ed = unwords
 
 ppDoc :: Env Float -> String
 ppDoc = show . Map.toList
+
+shouldLog :: Bool
+shouldLog = True
+
+shouldPrintLog :: Bool
+shouldPrintLog = True
 
 -- Editor defaults {{{
 
@@ -77,10 +84,10 @@ logOpt logPath itrace = do
     , "len"
     ]
   logLines logPath $ foldMap
-    ( \(_lsi,st) ->
-      [ -- unwords $ foldMap (pure . show) lsi
-        -- , 
-      show $ Map.toList st
+    ( \(w,lsi,st) ->
+      [ unwords $ foldMap (pure . show) lsi
+      , "penalty: " ++ show w
+      , show $ Map.toList st
       ]
     ) itrace
       -- foldr
@@ -93,8 +100,9 @@ logOpt logPath itrace = do
   lsLimit = lsIterLimit dummyParams
 
 writeLog :: FilePath -> String -> IO ()
-writeLog logPath ((++ "\n") -> msg) = do
-  putStr msg
+writeLog logPath ((++ "\n") -> msg) =
+  when shouldLog $ do
+  when shouldPrintLog $ putStr msg
   appendFile logPath msg
 
 logWords :: FilePath -> [String] -> IO ()

@@ -8,6 +8,7 @@ import Spec
 import Graphics.Gloss.Interface.IO.Game
 import qualified Data.Map as Map
 import qualified Data.Time as Time
+import Control.Monad (when)
 
 main :: IO ()
 main = do
@@ -48,7 +49,7 @@ makeLogFile name = do
         , name
         , ".log"
         ]
-  writeFile path ""
+  when shouldLog $ writeFile path "" -- XXX: global defined in Editor.hs
   return path
 
 initState :: Editor

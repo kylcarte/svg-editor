@@ -6,7 +6,7 @@ module Opt where
 
 import Numeric.AD
 import qualified Data.Foldable as F
-import Control.Arrow (second)
+import Control.Arrow (second,(***))
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Sequence (Seq,(|>))
@@ -62,6 +62,9 @@ approxEq x y = abs (x - y) <= epsd
 r2f :: (Fractional b, Real a) => a -> b
 r2f = realToFrac
 
+i2f :: Real a => (a,a) -> LSInterval
+i2f = r2f *** r2f
+
 ----- Various consts
 
 nanSub :: (Autofloat a) => a
@@ -73,22 +76,30 @@ infinity = 1/0
 -- }}}
 
 data Params = Params
-  { weight       :: Float
-  , optStatus    :: EPOptStatus
-  , overallObjFn :: AugObjFn
-  , epIterLimit  :: Int
-  , lsIterLimit  :: Int
-  , iterTrace    :: IterTrace
+  { weight        :: Weight
+  , optStatus     :: EPOptStatus
+  , overallObjFn  :: AugObjFn
+  , iterTrace     :: IterTrace
+  , epIterLimit   :: Int
+  , lsIterLimit   :: Int
+  , weightLimit   :: Float
+  , growthFactor  :: Float
+  , armijoConst   :: Float
+  , wolfeConst    :: Float
+  , lsInitStep    :: Float
+  , lsMinInterval :: Float
   }
 
-type IterTrace = Seq (LSIter,V Float)
-type Iter      = V Float
-type LSIter    = Seq LSStep
+type Weight     = Float
+type IterTrace  = Seq (Weight,LSIter,V Float)
+type Iter       = V Float
+type LSIter     = Seq (LSStep,LSInterval,Float)
+type LSInterval = (Float,Float)
 data LSStep
   = NotArmijo
   | NotWolfe
   | LimitReached
-  | IntervalConverged (Float,Float)
+  | IntervalConverged
   | LSSuccess
   deriving (Eq,Ord,Show)
 
@@ -105,7 +116,11 @@ runOpt :: Autofloat a => Params -> V a -> (IterTrace,V a)
 runOpt = update 0
   where
   update n params vstate
-    | n >= limit
+    | n >= iLimit
+    = ( itrace
+      , vstate
+      )
+    | pWeight >= wLimit
     = ( itrace
       , vstate
       )
@@ -115,19 +130,23 @@ runOpt = update 0
           update'
             ( params { optStatus = LSRunning cur
                      , weight    = initWeight
-                     , iterTrace = itrace |> (lsi,new)
+                     , iterTrace = itrace |> (pWeight,lsi,new)
                      }
             ) vstate'
   
         LSRunning prev ->
           update'
-            ( if stopCond vstate vstate'
-              then params' { optStatus = LSConverged prev
-                           }
-              else params'
-            ) vstate'
+            ( params' { optStatus = LSConverged prev
+                      }
+            )
+            -- ( if stopCond vstate vstate'
+            --   then params' { optStatus = LSConverged prev
+            --                }
+            --   else params'
+            -- )
+            vstate'
           where
-          params' = params { iterTrace = itrace |> (lsi,new) }
+          params' = params { iterTrace = itrace |> (pWeight,lsi,new) }
 
         LSConverged prev ->
           update'
@@ -139,16 +158,14 @@ runOpt = update 0
                            }
             ) vstate
           where
-          params' = params { iterTrace = itrace |> (lsi,new) }
+          params' = params { iterTrace = itrace |> (pWeight,lsi,new) }
 
-        EPConverged{} ->
+        EPConverged ->
           ( itrace
           , vstate
           )
       
     where
-    limit    = epIterLimit params
-    growth   = 10
     update'  = update $ succ n
     itrace   = iterTrace params
     status   = optStatus params
@@ -156,6 +173,11 @@ runOpt = update 0
     new      = fmap r2f vstate'
     stopCond = epStopCond $ weightedObjFn params
     (lsi, vstate', gradEval) = stepWithObjective params vstate
+    -- hparams
+    iLimit   = epIterLimit params
+    wLimit   = weightLimit params
+    pWeight  = weight params
+    growth   = growthFactor params
 
 stepWithObjective :: (Autofloat a) => Params -> V a -> (LSIter,V a, V a)
 stepWithObjective params state =
@@ -166,14 +188,13 @@ stepWithObjective params state =
   where
   (lsRes,timestep) =
     second catchNaN
-    $ awLineSearch limit f df descentDir state
+    $ awLineSearch params f df descentDir state
   steppedState = apV (stepT timestep) state gradEval
   f          = weightedObjFn params
   df u x     = gradF x `dotV` u
   gradF      = grad f
   gradEval   = gradF state
   descentDir = negV gradEval
-  limit      = lsIterLimit params
 
 catchNaN :: Autofloat a => a -> a
 catchNaN x =
@@ -181,50 +202,54 @@ catchNaN x =
   then nanSub
   else x
 
-awLineSearch :: Autofloat a => Int -> ObjFn -> ObjFnD -> V a -> V a -> (LSIter,a)
-awLineSearch limit f df u x0 =
-  update 0 (0,infinity) (mempty,1)
+awLineSearch :: Autofloat a => Params -> ObjFn -> ObjFnD -> V a -> V a -> (LSIter,a)
+awLineSearch params f df u x0 =
+  update 0 (0,infinity) (mempty,initStep)
   where
   update n i@(a,b) (hist,t)
     | n >= limit
-    = ( hist |> LimitReached
+    = ( hist |> (LimitReached,i',t')
       , t
       )
     | extent i < minInterval
-    = ( hist |> IntervalConverged (r2f a,r2f b)
+    = ( hist |> (IntervalConverged,i',t')
       , t
       )
 
     | not $ armijo t
     = update' (a,t)
-      ( hist |> NotArmijo
+      ( hist |> (NotArmijo,i',t')
       , (a + t) / 2
       )
 
     | not $ weakWolfe t
     = update' (t,b)
-      ( hist |> NotWolfe
+      ( hist |> (NotWolfe,i',t')
       , if b < infinity
         then (t + b) / 2
         else 2 * t
       )
 
     | otherwise
-    = ( hist |> LSSuccess
+    = ( hist |> (LSSuccess,i',t')
       , t
       )
     where
     update' = update $ succ n
+    i' = i2f i
+    t' = r2f t
   duf = df u
   armijo t =
     f (x0 +. t *. u) <= f x0 + c1 * t * duf x0
   weakWolfe t =
     duf (x0 +. t *. u) >= c2 * duf x0
   extent (a,b) = abs (b - a)
-  -- hyperparameters
-  c1 = 0.4
-  c2 = 0.2
-  minInterval = 10 ** (-10)
+  -- hparams
+  c1          = r2f $ armijoConst params
+  c2          = r2f $ wolfeConst params
+  limit       = lsIterLimit params
+  minInterval = r2f $ lsMinInterval params
+  initStep    = r2f $ lsInitStep params
 
 epStopCond :: Autofloat a => (V a -> a) -> V a -> V a -> Bool
 epStopCond f x x' =
@@ -234,12 +259,18 @@ epStopCond f x x' =
 
 initParams :: AugObjFn -> Params
 initParams f = Params
-  { weight       = initWeight
-  , optStatus    = NewIter
-  , overallObjFn = f
-  , epIterLimit  = 1000
-  , lsIterLimit  = 100
-  , iterTrace    = mempty
+  { weight        = initWeight
+  , optStatus     = NewIter
+  , iterTrace     = mempty
+  , overallObjFn  = f
+  , epIterLimit   = 100
+  , lsIterLimit   = 100
+  , weightLimit   = 1e8
+  , growthFactor  = 2
+  , armijoConst   = 1e-4
+  , wolfeConst    = 0.2
+  , lsInitStep    = 1
+  , lsMinInterval = 1e-10
   }
 
 initWeight :: Floating a => a

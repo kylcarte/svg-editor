@@ -84,10 +84,11 @@ logOpt logPath itrace = do
     , "len"
     ]
   logLines logPath $ foldMap
-    ( \(w,lsi,st) ->
+    ( \(w,lsi,st{-,grad-}) ->
       [ unwords $ foldMap (pure . show) lsi
       , "penalty: " ++ show w
-      , show $ Map.toList st
+      -- , "gradient: " ++ show (Map.toList grad)
+      , "state: " ++ show (Map.toList st)
       ]
     ) itrace
       -- foldr

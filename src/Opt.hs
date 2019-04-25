@@ -7,7 +7,7 @@ module Opt where
 import Numeric.AD
 import qualified Data.Foldable as F
 import Control.Arrow (second,(***))
-import Data.Map (Map)
+import Data.Map (Map,(!))
 import qualified Data.Map as Map
 import Data.Sequence (Seq,(|>))
 import qualified Data.Sequence as Seq
@@ -91,7 +91,7 @@ data Params = Params
   }
 
 type Weight     = Float
-type IterTrace  = Seq (Weight,LSIter,V Float)
+type IterTrace  = Seq (Weight,LSIter,V Float{-,V Float-})
 type Iter       = V Float
 type LSIter     = Seq (LSStep,LSInterval,Float)
 type LSInterval = (Float,Float)
@@ -130,27 +130,28 @@ runOpt = update 0
           update'
             ( params { optStatus = LSRunning cur
                      , weight    = initWeight
-                     , iterTrace = itrace |> (pWeight,lsi,new)
+                     , iterTrace = itrace |> (pWeight,lsi,new{-,gr-})
                      }
             ) vstate'
-  
+
         LSRunning prev ->
           update'
-            ( params' { optStatus = LSConverged prev
-                      }
-            )
-            -- ( if stopCond vstate vstate'
-            --   then params' { optStatus = LSConverged prev
-            --                }
-            --   else params'
+            -- ( params' { optStatus = LSConverged prev
+            --           -- , weight = growth * weight params -- ???
+            --           }
             -- )
+            ( if stopCond vstate vstate'
+              then params' { optStatus = LSConverged prev
+                           }
+              else params'
+            )
             vstate'
           where
-          params' = params { iterTrace = itrace |> (pWeight,lsi,new) }
+          params' = params { iterTrace = itrace |> (pWeight,lsi,new{-,gr-}) }
 
         LSConverged prev ->
           update'
-            ( if stopCond prev cur
+            ( if stopCond prev cur && weight params > 10
               then params' { optStatus = EPConverged
                            }
               else params' { optStatus = LSRunning cur
@@ -158,7 +159,7 @@ runOpt = update 0
                            }
             ) vstate
           where
-          params' = params { iterTrace = itrace |> (pWeight,lsi,new) }
+          params' = params { iterTrace = itrace |> (pWeight,lsi,new{-,gr-}) }
 
         EPConverged ->
           ( itrace
@@ -171,19 +172,21 @@ runOpt = update 0
     status   = optStatus params
     cur      = fmap r2f vstate
     new      = fmap r2f vstate'
+    -- gradF    = fmap r2f gradEval
     stopCond = epStopCond $ weightedObjFn params
-    (lsi, vstate', gradEval) = stepWithObjective params vstate
+    (lsi, vstate', gradF) = stepWithObjective params vstate
+    -- gr = gradF _
     -- hparams
     iLimit   = epIterLimit params
     wLimit   = weightLimit params
     pWeight  = weight params
     growth   = growthFactor params
 
-stepWithObjective :: (Autofloat a) => Params -> V a -> (LSIter,V a, V a)
+stepWithObjective :: (Autofloat a) => Params -> V a -> (LSIter,V a, V a -> V a)
 stepWithObjective params state =
   ( lsRes
   , steppedState
-  , gradEval
+  , gradF
   )
   where
   (lsRes,timestep) =
@@ -290,24 +293,69 @@ weightedObjFn params = overallObjFn params $ r2f $ weight params
 
 -- {{{
 
-{-
-test0 :: V Float
-test0 = optimize
-  ( initParams $ \c [w,h,cx,cy] ->
-      distsq (40,40) (cx,cy)
+-- resize rectangle by dragging top right corner, fixing bottom left corner
+test_drag_tr :: (IterTrace,V Float)
+test_drag_tr =
+  runOpt
+  ( initParams $ \c rect' -> -- [w,h,cx,cy] ->
+      let -- positions calculated from new parameters
+          right'  = rect_right rect'
+          top'    = rect_top rect'   
+          left'   = rect_left rect'  
+          bottom' = rect_bottom rect'
+      in
+      distsq rightTopDesired
+        ( right'
+        , top'
+        )
       + penalties c
-        [ 75 - (cy + h/2)
-        , 5  - (cx - w/2)
-        , (cy + h/2) - 75
-        , (cx - w/2) -  5
+        [ bottom - bottom'
+        , left   - left'
+        , bottom' - bottom
+        , left'   - left
         ]
-  )
-  [ 50 -- w
-  , 30 -- h
-  , 30 -- cx
-  , 60 -- cy
+  ) rect
+  where
+  -- original state of rectangle
+  rect = Map.fromList
+    [ ( "w"  , 50 )
+    , ( "h"  , 30 )
+    , ( "cx" , 30 )
+    , ( "cy" , 60 )
+    ]
+  -- original position of bottom-left corner
+  -- should be preserved by optimization
+  left   = rect_left rect
+  bottom = rect_bottom rect
+  -- desired location of top-right corner
+  rightTopDesired = (40,40)
+
+rect_top, rect_bottom, rect_right, rect_left
+  :: Fractional a => V a -> a
+rect_top r = 
+  (r ! "cy") - (r ! "h")/2
+rect_bottom r = 
+  (r ! "cy") + (r ! "h")/2
+rect_right r = 
+  (r ! "cx") + (r ! "w")/2
+rect_left r = 
+  (r ! "cx") - (r ! "w")/2
+
+expected_drag_tr :: V Float
+expected_drag_tr = Map.fromList
+  [ ("w", 35)
+  , ("h", 35)
+  , ("cx",22.5)
+  , ("cy",57.5)
   ]
 
+diff_drag_tr :: V Float
+diff_drag_tr =
+  Map.intersectionWith (-)
+  (snd test_drag_tr)
+  expected_drag_tr
+
+{-
 test_rot_rect_converging :: V Float
 test_rot_rect_converging = optimize
   ( initParams $ \c [w,h,cx,cy,theta] ->

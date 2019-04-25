@@ -55,6 +55,7 @@ makeLogFile name = do
 initState :: Editor
 initState =
   initEditor
+  -- rectangle
   rotatableRectangle
   $ Map.fromList
     [ ( "w"     , 90 )
